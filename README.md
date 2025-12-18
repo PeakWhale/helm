@@ -13,6 +13,7 @@
 PeakWhale™ Helm is a local first, multi agent AI system that demonstrates how enterprises can combine structured financial data and unstructured documents to produce grounded, explainable answers in a clean, auditable workflow.
 
 ![PeakWhale™ Helm Architecture](docs/architecture.png)
+
 If the architecture image does not render on GitHub, confirm the file exists at `docs/architecture.png` and is committed to the repository.
 
 ## Enterprise Business Problem
@@ -20,10 +21,10 @@ If the architecture image does not render on GitHub, confirm the file exists at 
 In real enterprises, critical signals are fragmented across systems.
 
 * Transaction data lives in databases and ledgers
-* Supporting evidence lives in documents like loan applications and PDFs, which stands for Portable Document Format
-* Analysts and investigators manually connect the dots, which slows decisions, increases cost, and makes outcomes harder to reproduce and audit
+* Supporting evidence lives in documents like loan applications, policy forms, emails, and PDFs
+* Teams manually connect the dots, which slows decisions, increases cost, and makes outcomes harder to reproduce and audit
 
-PeakWhale™ Helm shows how an agentic architecture can automate this end to end workflow locally, while still keeping the reasoning explainable and the tool usage visible.
+PeakWhale™ Helm shows how an agentic architecture can automate this end to end workflow locally, while keeping reasoning explainable and tool usage visible.
 
 ## Important Notice
 
@@ -40,12 +41,12 @@ Find the customer with the most Gambling High Risk transactions, then check thei
 
 Behind the scenes, multiple agents collaborate to:
 
-1. Query a financial ledger using SQL, which stands for Structured Query Language
+1. Query a financial ledger using SQL
 2. Search loan application PDFs using embeddings and vector search
 3. Merge results into a single grounded answer
 4. Explain how the answer was derived
 
-All locally, without cloud APIs, which stands for Application Programming Interface.
+All locally, without cloud APIs.
 
 ## System Architecture
 
@@ -53,15 +54,15 @@ PeakWhale™ Helm is built around a simple orchestration pattern. A Supervisor a
 
 Key components:
 
-* Chainlit UI, which stands for User Interface, provides the chat experience and tool call visibility
+* Chainlit UI provides the chat experience and tool call visibility
 * Supervisor Agent routes intent and orchestrates the flow
 * Quant Agent performs SQL analysis over DuckDB
 * Researcher Agent performs semantic search over loan PDFs
 * Extractor normalizes facts into shared state
 * DuckDB Ledger is the local transaction database
 * PDF Vault stores synthetic loan documents
-* FAISS, which stands for Facebook AI Similarity Search, provides the vector index for retrieval
-* Local LLM, which stands for Large Language Model, via Ollama provides reasoning and response generation
+* FAISS provides the vector index for retrieval
+* Local LLM via Ollama provides reasoning and response generation
 
 ## Example End to End Flow
 
@@ -92,7 +93,7 @@ Income source: Freelance Consulting
 * Python 3.11+
 * DuckDB, local analytical database
 * Chainlit, UI and logging
-* FAISS, which stands for Facebook AI Similarity Search, vector search
+* FAISS, vector search
 * SentenceTransformers all MiniLM L6 v2 embeddings
 * Ollama, local LLM runtime
 * UV, Python environment and dependency management
@@ -129,7 +130,7 @@ peakwhale-helm/
 * Python 3.11 or newer
 * UV installed
 * Ollama installed and running
-* DuckDB installed if you want the CLI, which stands for Command Line Interface, viewer
+* DuckDB installed if you want the CLI viewer
 
 ### Install dependencies
 
@@ -206,8 +207,6 @@ PeakWhale™ Helm demonstrates enterprise style AI architecture patterns:
 * Retrieval grounded answers
 * Clear separation of concerns
 * Local first operation for privacy and reproducibility
-
-It is intentionally interview ready.
 
 ## Part of the PeakWhale™ Ecosystem
 
