@@ -14,8 +14,6 @@ PeakWhale™ Helm is a local first, multi agent AI system that demonstrates how 
 
 ![PeakWhale™ Helm Architecture](docs/architecture.png)
 
-If the architecture image does not render on GitHub, confirm the file exists at `docs/architecture.png` and is committed to the repository.
-
 ## Enterprise Business Problem
 
 In real enterprises, critical signals are fragmented across systems.
