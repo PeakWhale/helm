@@ -4,16 +4,61 @@ import uuid
 import os
 import sys
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, TypedDict, List, Optional, Any
+from typing import Annotated, TypedDict, List, Optional, Any, Callable
 
-from langchain_core.messages import BaseMessage, AIMessage
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+
+
+logger = logging.getLogger("helm.graph")
+logging.basicConfig(
+    level=os.environ.get("HELM_LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+
+def _truthy_env(name: str, default: str = "1") -> bool:
+    v = os.environ.get(name, default)
+    return str(v).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _build_ollama_llm() -> tuple[Any, Optional[str]]:
+    """
+    Returns (llm, model_name). If Ollama is disabled or not available, returns (None, None).
+    """
+    if not _truthy_env("HELM_USE_OLLAMA", "1"):
+        return None, None
+
+    model_name = os.environ.get("HELM_OLLAMA_MODEL", "llama3.2")
+    base_url = os.environ.get("HELM_OLLAMA_BASE_URL", "").strip() or None
+
+    try:
+        try:
+            from langchain_ollama import ChatOllama
+        except Exception:
+            from langchain_community.chat_models import ChatOllama  # fallback
+
+        kwargs = {
+            "model": model_name,
+            "temperature": float(os.environ.get("HELM_OLLAMA_TEMPERATURE", "0.2")),
+        }
+        if base_url:
+            kwargs["base_url"] = base_url
+
+        llm = ChatOllama(**kwargs)
+        logger.info("Ollama enabled. Model: %s", model_name)
+        return llm, model_name
+
+    except Exception as e:
+        logger.warning("Ollama unavailable. Falling back to template answers. Details: %s", e)
+        return None, None
 
 
 class AgentState(TypedDict, total=False):
@@ -227,10 +272,6 @@ def _extract_fact_line(text: str, doc_query: Optional[str]) -> Optional[str]:
 
 
 def _tool_content_to_text(content) -> str:
-    """
-    Tool messages coming from MCP may use a list of content blocks.
-    Normalize to plain text before saving into state.
-    """
     if content is None:
         return ""
     if isinstance(content, str):
@@ -391,7 +432,10 @@ def researcher_node(state: AgentState):
             }
         ],
     )
-    return {"messages": [msg], "research_attempts": state.get("research_attempts", 0) + 1}
+    return {"messages": [msg], "research_attempts": state.get("research_attempts", 0) + 1
+
+
+}
 
 
 def market_node(state: AgentState):
@@ -468,7 +512,7 @@ def extractor_node(state: AgentState):
     return updates
 
 
-def final_node(state: AgentState):
+def final_template_node(state: AgentState):
     mode = state.get("mode") or "unknown"
 
     customer_id = state.get("customer_id")
@@ -523,7 +567,59 @@ def final_node(state: AgentState):
 
         return {"messages": [AIMessage(content=f"{lead}\nI could not retrieve the loan application PDF for that customer.")]}
 
-    return {"messages": [AIMessage(content="Try asking for: top Gambling High Risk customer, loan PDF lookup for a customer id, stock price for $AAPL, or Sentiment: <text>.")]}    
+    return {"messages": [AIMessage(content="Try asking for: top Gambling High Risk customer, loan PDF lookup for a customer id, stock price for $AAPL, or Sentiment: <text>.")]}
+
+
+def make_final_node(llm: Any) -> Callable[[AgentState], Any]:
+    async def final_node(state: AgentState):
+        if not llm:
+            return final_template_node(state)
+
+        user_text = _get_last_user_text(state)
+        mode = state.get("mode") or "unknown"
+
+        context = {
+            "mode": mode,
+            "customer_id": state.get("customer_id"),
+            "high_risk_count": state.get("high_risk_count"),
+            "doc_query": state.get("doc_query"),
+            "income_source": state.get("income_source"),
+            "doc_fact_line": state.get("doc_fact_line"),
+            "ticker": state.get("ticker"),
+            "market_result": state.get("market_result"),
+            "sentiment_result": state.get("sentiment_result"),
+        }
+
+        excerpt = state.get("loan_excerpt") or ""
+        if excerpt:
+            context["loan_excerpt"] = excerpt[:1600]
+
+        sys_msg = SystemMessage(
+            content=(
+                "You are PeakWhale Helm. Answer the user using only the provided context and tool results. "
+                "Do not invent customer ids, prices, or document facts. "
+                "If something is missing, say what is missing and suggest the next user action."
+            )
+        )
+
+        user_msg = HumanMessage(
+            content=(
+                f"User question:\n{user_text}\n\n"
+                f"Context JSON:\n{json.dumps(context, ensure_ascii=False, indent=2)}\n\n"
+                "Write a clear, concise answer."
+            )
+        )
+
+        try:
+            resp = await llm.ainvoke([sys_msg, user_msg])
+            text = getattr(resp, "content", "") or ""
+            text = text.strip() or "I could not generate a response."
+            return {"messages": [AIMessage(content=text)]}
+        except Exception as e:
+            logger.warning("Ollama call failed, falling back to template. Details: %s", e)
+            return final_template_node(state)
+
+    return final_node
 
 
 def _should_continue(state: AgentState):
@@ -537,6 +633,8 @@ class GraphRuntime:
     graph: Any
     _client: MultiServerMCPClient
     _session_ctx: Any
+    llm: Any = None
+    llm_name: Optional[str] = None
 
     @staticmethod
     def _find_project_root(start: Path) -> Path:
@@ -583,6 +681,8 @@ class GraphRuntime:
         project_root = cls._project_root()
         tools_path = cls._tools_server_path()
 
+        llm, llm_name = _build_ollama_llm()
+
         connections = {
             "helm_tools": {
                 "transport": os.environ.get("HELM_MCP_TRANSPORT", "stdio"),
@@ -614,7 +714,7 @@ class GraphRuntime:
         workflow.add_node("Sentiment", sentiment_node)
         workflow.add_node("MCPTools", mcp_tool_node)
         workflow.add_node("Extractor", extractor_node)
-        workflow.add_node("Final", final_node)
+        workflow.add_node("Final", make_final_node(llm))
 
         workflow.add_edge(START, "Supervisor")
 
@@ -640,7 +740,7 @@ class GraphRuntime:
         workflow.add_edge("Final", END)
 
         graph = workflow.compile()
-        return cls(graph=graph, _client=client, _session_ctx=session_ctx)
+        return cls(graph=graph, _client=client, _session_ctx=session_ctx, llm=llm, llm_name=llm_name)
 
     async def aclose(self) -> None:
         if self._session_ctx:

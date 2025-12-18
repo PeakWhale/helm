@@ -1,3 +1,4 @@
+import os
 import json
 import chainlit as cl
 from langchain_core.messages import HumanMessage
@@ -9,10 +10,6 @@ except ImportError:
 
 
 def _extract_tool_calls(msg):
-    """
-    Normalize tool calls across providers.
-    Returns a list of dicts: {id, name, args}
-    """
     calls = []
 
     direct = getattr(msg, "tool_calls", None)
@@ -71,11 +68,6 @@ def _looks_like_error(text):
 
 
 def _content_to_text(content) -> str:
-    """
-    MCP tool results can be returned as a list of content blocks, for example
-    [{"type":"text","text":"..."}]
-    Normalize to a single string for rendering.
-    """
     if content is None:
         return ""
     if isinstance(content, str):
@@ -107,9 +99,14 @@ async def start():
     runtime = await GraphRuntime.create()
     cl.user_session.set("runtime", runtime)
 
+    llm_line = "Local LLM via Ollama: disabled"
+    if getattr(runtime, "llm", None) is not None:
+        llm_line = f"Local LLM via Ollama: enabled ({runtime.llm_name or 'model'})"
+
     await cl.Message(
         content=(
             "⚓ **PeakWhale Helm Online**\n\n"
+            f"{llm_line}\n"
             "MCP Host is running, and MCP tools are loaded from the local MCP tool server.\n\n"
             "Try:\n"
             "1) Quant: find the top Gambling High Risk customer\n"
