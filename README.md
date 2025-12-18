@@ -1,113 +1,115 @@
-````markdown
-# ⚓ PeakWhale™ Helm  
-### Multi Agent Financial Intelligence System (Local · Open Source · Demo First)
+````md
+# ⚓ PeakWhale™ Helm
+### Multi-Agent Financial Intelligence System (Local • Open Source • Demo First)
 
-PeakWhale™ Helm is a local first, multi agent AI system that demonstrates how agentic architectures can analyze structured financial data and unstructured documents together in a clean, explainable, enterprise style workflow.
+PeakWhale™ Helm is a local first multi agent AI system that demonstrates how agentic architectures can analyze structured financial data and unstructured documents together in a clean explainable enterprise style workflow.
 
-This project is part of the PeakWhale™ open source ecosystem, built to showcase real world AI architecture patterns for recruiters, engineers, and practitioners.
+This project is part of the PeakWhale™ open source ecosystem built to showcase real world AI architecture patterns for recruiters engineers and practitioners.
 
 ## Important Notice
 All data in this repository is 100 percent synthetic.  
-Customer names, transaction values, merchants, documents, and Portable Document Format (PDF) files are randomly generated and used for demonstration purposes only.
+Customer names transaction values merchants documents and PDFs are randomly generated and used for demonstration purposes only.
 
 ## What PeakWhale™ Helm Does
 
-In real enterprises, insights are fragmented:
+In real enterprises insights are fragmented.
 
-* Transactions live in databases  
-* Supporting evidence lives in documents  
-* Analysts manually connect the dots  
+- Transactions live in databases  
+- Supporting evidence lives in documents  
+- Analysts manually connect the dots  
 
-PeakWhale™ Helm shows how AI agents can automate that workflow.
+PeakWhale™ Helm shows how AI agents can do this automatically.
 
-Example user question:
+Example prompt you can ask:
 
 ```text
 Find the customer with the most Gambling High Risk transactions and check their loan application for income source.
 ````
 
-Behind the scenes, multiple agents collaborate to:
+Behind the scenes multiple agents collaborate to:
 
-1. Query a financial ledger using Structured Query Language (SQL)
+1. Query a financial ledger using SQL which stands for Structured Query Language
 2. Search loan application PDFs using embeddings and vector search
-3. Merge results into a single, grounded answer
+3. Merge results into a single grounded answer
 4. Explain how the answer was derived
 
-All locally, without cloud APIs.
+All locally without cloud APIs.
 
 ## System Architecture
 
 ![PeakWhale™ Helm Architecture](docs/peakwhale-helm-architecture.png)
 
-| Component                                   | Responsibility                                      |
-| ------------------------------------------- | --------------------------------------------------- |
-| Chainlit UI                                 | Interactive chat interface and clean step logging   |
-| Supervisor Agent                            | Routes intent and orchestrates agent execution      |
-| Quant Agent                                 | Executes SQL queries against DuckDB                 |
-| Researcher Agent                            | Searches loan PDFs via semantic retrieval           |
-| Shared State Extractor                      | Normalizes key facts into a shared state object     |
-| DuckDB                                      | Local analytical database for the ledger            |
-| PDF Vault                                   | Local folder containing synthetic loan applications |
-| Facebook AI Similarity Search (FAISS)       | Vector index for document retrieval                 |
-| Local Large Language Model (LLM) via Ollama | Reasoning, planning, and final response writing     |
+### Architecture Overview
+
+| Component                                                  | Responsibility                                           |
+| ---------------------------------------------------------- | -------------------------------------------------------- |
+| Chainlit UI                                                | Interactive chat interface and step logging              |
+| Supervisor Agent                                           | Routes intent and orchestrates agents                    |
+| Quant Agent                                                | Executes SQL queries on DuckDB                           |
+| Researcher Agent                                           | Searches loan PDFs via semantic search                   |
+| Extractor                                                  | Normalizes facts into shared state                       |
+| DuckDB                                                     | Local analytical database for transactions and customers |
+| PDF Vault                                                  | Synthetic loan applications stored as PDFs               |
+| FAISS which stands for Facebook AI Similarity Search       | Vector index for document retrieval                      |
+| Local LLM which stands for Large Language Model via Ollama | Reasoning and response generation                        |
 
 ## Example End to End Flow
 
-### User Prompt
+### User prompt
 
 ```text
 Find the customer with the most Gambling High Risk transactions and check their loan application for income source.
 ```
 
-### Agent Execution Flow
+### Agent execution flow
 
 1. Supervisor detects a multi step request
-2. Quant queries DuckDB to identify the top customer by high risk transaction count
-3. Researcher searches the matching customer’s loan PDF for the income source field
+2. Quant Agent queries DuckDB to identify the top risk customer
+3. Researcher Agent searches PDFs for that customer and extracts the requested line
 4. Extractor merges structured and unstructured results into shared state
-5. The LLM generates a grounded answer
+5. The local LLM produces a clear grounded response
 
-### Example Final Answer
+### Example final answer
 
+```text
 Customer ID: 2631d00b
 High Risk transactions: 8
 Income source: Freelance Consulting
+```
 
 ## Technology Stack
 
 * Python 3.11
-* DuckDB (local analytical database)
-* Chainlit (agent UI and step logging)
-* Graph based orchestration (LangGraph style)
-* Facebook AI Similarity Search (FAISS) for vector search
+* DuckDB local analytical database
+* Chainlit agent user interface and logging
+* LangGraph style orchestration
+* FAISS which stands for Facebook AI Similarity Search
 * SentenceTransformers MiniLM for embeddings
 * Ollama for local LLM runtime
 * uv for Python environment management
 
 ## Repository Structure
 
-* app.py
-* main.py
-* src/
-
-  * graph.py
-  * tools.py
-  * seed_data.py
-  * generate_docs.py
-* scripts/
-
-  * demo_reset.py
-* data/
-
-  * ledger.duckdb
-  * vault/
-* docs/
-
-  * peakwhale-helm-architecture.png
-* README.md
-* LICENSE
-* pyproject.toml
-* uv.lock
+```text
+peakwhale-helm/
+├── app.py
+├── main.py
+├── src/
+│   ├── graph.py
+│   ├── tools.py
+│   ├── seed_data.py
+│   └── generate_docs.py
+├── scripts/
+│   └── demo_reset.py
+├── data/
+│   ├── ledger.duckdb
+│   └── vault/
+├── docs/
+│   └── peakwhale-helm-architecture.png
+├── README.md
+├── LICENSE
+└── pyproject.toml
+```
 
 ## Quick Start
 
@@ -126,22 +128,30 @@ uv sync
 
 ### Reset demo data
 
+If you have a Makefile target:
+
 ```bash
 make demo
 ```
 
-This clears and regenerates:
+Or run the script directly:
 
-* Synthetic ledger data in DuckDB
-* Synthetic loan application PDFs in the vault
+```bash
+uv run python scripts/demo_reset.py
+```
+
+This deletes old demo data and regenerates:
+
+* Synthetic ledger in DuckDB
+* Synthetic loan application PDFs
 
 ### Run the application
 
 ```bash
-uv run chainlit run app.py
+uv run chainlit run app.py -w
 ```
 
-Then open:
+Open:
 
 ```text
 http://localhost:8000
@@ -149,23 +159,24 @@ http://localhost:8000
 
 ## Viewing Data Manually
 
-### View DuckDB in the official CLI (Command Line Interface)
+### View DuckDB in the official CLI
 
 ```bash
 duckdb data/ledger.duckdb
 ```
 
-Inside DuckDB, run:
+Then run:
 
 ```sql
 SHOW TABLES;
 SELECT * FROM customers LIMIT 10;
-SELECT * FROM transactions WHERE category = 'Gambling/High Risk';
+SELECT * FROM transactions LIMIT 10;
+SELECT * FROM transactions WHERE category = 'Gambling/High Risk' LIMIT 25;
 ```
 
-### View loan PDFs
+### View loan application PDFs
 
-Open the folder:
+Open this folder in Finder:
 
 ```text
 data/vault/
@@ -179,18 +190,18 @@ PeakWhale™ Helm demonstrates:
 
 * Agent to agent coordination
 * Deterministic tool usage
-* Explainable reasoning paths
+* Explainable reasoning paths with tool traces
 * Local first AI architecture
 * Enterprise style separation of concerns
 
-This project is intentionally interview ready, not a toy chatbot.
+This project is intentionally interview ready not a toy chatbot.
 
 ## Part of the PeakWhale™ Ecosystem
 
-* PeakWhale™ Orca: Real time fraud detection
-* PeakWhale™ Harbor: Real estate valuation
-* PeakWhale™ Sonar: Automated threat detection
-* PeakWhale™ Delta: Decision support systems
+* PeakWhale™ Orca real time fraud detection
+* PeakWhale™ Harbor real estate valuation
+* PeakWhale™ Sonar automated threat detection
+* PeakWhale™ Delta decision support systems
 
 ## License
 
@@ -199,10 +210,10 @@ MIT License
 
 ## Author
 
-Built by Addy (Aditya Rao Kaveti)
-AI Systems · Agentic Architectures · Enterprise ML
+Built by Addy
+AI systems agentic architectures enterprise ML
 
-If you are reviewing this repository, start with the architecture diagram and run the demo.
+If you are reviewing this repository start with the architecture diagram and run the demo.
 
 ```
 ::contentReference[oaicite:0]{index=0}
