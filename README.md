@@ -1,6 +1,6 @@
 ````md
 # ⚓ PeakWhale™ Helm
-### Multi-Agent Financial Intelligence System (Local • Open Source • Demo First)
+### Multi Agent Financial Intelligence System (Local • Open Source • Demo First)
 
 PeakWhale™ Helm is a local first multi agent AI system that demonstrates how agentic architectures can analyze structured financial data and unstructured documents together in a clean explainable enterprise style workflow.
 
@@ -20,13 +20,13 @@ In real enterprises insights are fragmented.
 
 PeakWhale™ Helm shows how AI agents can do this automatically.
 
-Example prompt you can ask:
+Example prompt you can ask
 
 ```text
 Find the customer with the most Gambling High Risk transactions and check their loan application for income source.
 ````
 
-Behind the scenes multiple agents collaborate to:
+Behind the scenes multiple agents collaborate to
 
 1. Query a financial ledger using SQL which stands for Structured Query Language
 2. Search loan application PDFs using embeddings and vector search
@@ -37,7 +37,9 @@ All locally without cloud APIs.
 
 ## System Architecture
 
-![PeakWhale™ Helm Architecture](docs/peakwhale-helm-architecture.png)
+If the image does not render on GitHub confirm the file name matches exactly and that it is committed to the repo under the docs folder.
+
+<img src="./docs/peakwhale-helm-architecture.png" alt="PeakWhale™ Helm Architecture" width="900" />
 
 ### Architecture Overview
 
@@ -81,7 +83,7 @@ Income source: Freelance Consulting
 
 * Python 3.11
 * DuckDB local analytical database
-* Chainlit agent user interface and logging
+* Chainlit agent UI and logging
 * LangGraph style orchestration
 * FAISS which stands for Facebook AI Similarity Search
 * SentenceTransformers MiniLM for embeddings
@@ -128,19 +130,19 @@ uv sync
 
 ### Reset demo data
 
-If you have a Makefile target:
+Use the Makefile target
 
 ```bash
 make demo
 ```
 
-Or run the script directly:
+Or run the script directly
 
 ```bash
 uv run python scripts/demo_reset.py
 ```
 
-This deletes old demo data and regenerates:
+This deletes old demo data and regenerates
 
 * Synthetic ledger in DuckDB
 * Synthetic loan application PDFs
@@ -151,7 +153,7 @@ This deletes old demo data and regenerates:
 uv run chainlit run app.py -w
 ```
 
-Open:
+Open
 
 ```text
 http://localhost:8000
@@ -159,13 +161,13 @@ http://localhost:8000
 
 ## Viewing Data Manually
 
-### View DuckDB in the official CLI
+### DuckDB CLI
 
 ```bash
 duckdb data/ledger.duckdb
 ```
 
-Then run:
+Then run
 
 ```sql
 SHOW TABLES;
@@ -174,9 +176,9 @@ SELECT * FROM transactions LIMIT 10;
 SELECT * FROM transactions WHERE category = 'Gambling/High Risk' LIMIT 25;
 ```
 
-### View loan application PDFs
+### PDFs
 
-Open this folder in Finder:
+Open this folder in Finder
 
 ```text
 data/vault/
@@ -186,7 +188,7 @@ Then double click any PDF.
 
 ## Why This Project Exists
 
-PeakWhale™ Helm demonstrates:
+PeakWhale™ Helm demonstrates
 
 * Agent to agent coordination
 * Deterministic tool usage
@@ -194,7 +196,7 @@ PeakWhale™ Helm demonstrates:
 * Local first AI architecture
 * Enterprise style separation of concerns
 
-This project is intentionally interview ready not a toy chatbot.
+This project is intentionally interview ready.
 
 ## Part of the PeakWhale™ Ecosystem
 
@@ -212,8 +214,6 @@ MIT License
 
 Built by Addy
 AI systems agentic architectures enterprise ML
-
-If you are reviewing this repository start with the architecture diagram and run the demo.
 
 ```
 ::contentReference[oaicite:0]{index=0}
