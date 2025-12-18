@@ -1,4 +1,4 @@
-# ⚓ PeakWhale™ Helm
+# PeakWhale™ Helm
 
 ### Multi Agent Financial Intelligence System (Local First, Open Source, Demo First)
 
