@@ -6,7 +6,7 @@ from src.graph import app as graph_app
 
 def _extract_tool_calls(msg):
     """
-    Normalizes tool calls across providers.
+    Normalize tool calls across providers.
     Returns a list of dicts: {id, name, args}
     """
     calls = []
@@ -48,9 +48,6 @@ def _extract_tool_calls(msg):
 
 
 def _format_any(value, max_len=2500):
-    """
-    Safe string formatting for step output.
-    """
     try:
         if isinstance(value, (dict, list)):
             text = json.dumps(value, indent=2, ensure_ascii=False)
@@ -66,14 +63,21 @@ def _format_any(value, max_len=2500):
 
 def _looks_like_error(text):
     t = (text or "").lower()
-    return ("error" in t) or ("exception" in t) or ("traceback" in t)
+    return ("error" in t) or ("exception" in t) or ("traceback" in t) or ("failed" in t)
 
 
 @cl.on_chat_start
 async def start():
     cl.user_session.set("graph", graph_app)
     await cl.Message(
-        content="⚓ **Peakwhale Helm Online.**\n\nAsk me to analyze the ledger (Quant) or loan PDFs (Researcher)."
+        content=(
+            "⚓ **PeakWhale Helm Online.**\n\n"
+            "Try:\n"
+            "1) Quant: find the top Gambling/High Risk customer\n"
+            "2) Researcher: search loan PDFs for a customer id\n"
+            "3) Market: get stock price for $AAPL or TSLA\n"
+            "4) Sentiment: analyze sentiment on a sentence\n"
+        )
     ).send()
 
 
@@ -117,5 +121,8 @@ async def main(message: cl.Message):
 
             content = getattr(last_msg, "content", "") or ""
             if content.strip():
-                final_answer.content += ("\n" + content.strip())
+                if final_answer.content:
+                    final_answer.content += "\n" + content.strip()
+                else:
+                    final_answer.content = content.strip()
                 await final_answer.update()

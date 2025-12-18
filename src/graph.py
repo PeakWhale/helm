@@ -13,10 +13,6 @@ except ImportError:
     from tools import query_ledger, get_stock_price, analyze_sentiment, search_loan_documents
 
 
-quant_tools = [query_ledger]
-researcher_tools = [get_stock_price, analyze_sentiment, search_loan_documents]
-
-
 class AgentState(TypedDict, total=False):
     messages: Annotated[List[BaseMessage], operator.add]
     next: str
@@ -32,8 +28,14 @@ class AgentState(TypedDict, total=False):
     income_source: Optional[str]
     doc_fact_line: Optional[str]
 
+    ticker: Optional[str]
+    market_result: Optional[str]
+    sentiment_result: Optional[str]
+
     quant_attempts: int
     research_attempts: int
+    market_attempts: int
+    sentiment_attempts: int
 
 
 TOP_HIGH_RISK_SQL = (
@@ -59,11 +61,58 @@ def _extract_customer_id_from_text(user_text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+_TICKER_STOPWORDS = {
+    "GET",
+    "THE",
+    "A",
+    "AN",
+    "OF",
+    "FOR",
+    "TO",
+    "STOCK",
+    "PRICE",
+    "TICKER",
+    "QUOTE",
+    "LATEST",
+    "TODAY",
+    "MARKET",
+    "DATA",
+    "CUSTOMER",
+    "RESEARCHER",
+    "QUANT",
+    "SENTIMENT",
+}
+
+
+def _extract_ticker(user_text: str) -> Optional[str]:
+    t = (user_text or "").strip()
+
+    m = re.search(r"\$([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", t)
+    if m:
+        return m.group(1).upper()
+
+    m = re.search(r"(?i)\bfor\s+\$?([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", t)
+    if m:
+        return m.group(1).upper()
+
+    m = re.search(r"(?i)\bof\s+\$?([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", t)
+    if m:
+        return m.group(1).upper()
+
+    stop = {
+        "GET", "LATEST", "STOCK", "PRICE", "TICKER", "WHAT", "IS", "THE", "OF", "FOR",
+        "PLEASE", "CAN", "YOU", "QUOTE", "MARKET", "DATA", "CUSTOMER", "RESEARCHER",
+        "QUANT", "SENTIMENT", "ANALYZE", "INCOME", "SOURCE", "LOAN", "APPLICATION"
+    }
+
+    tokens = re.findall(r"\b[A-Za-z][A-Za-z0-9\.\-]{0,9}\b", t)
+    candidates = [tok.upper() for tok in tokens if tok.upper() not in stop]
+    return candidates[-1] if candidates else None
+
+
+
 def _detect_mode(user_text: str) -> str:
     t = (user_text or "").lower()
-
-    has_quant_label = "quant:" in t
-    has_researcher_label = "researcher:" in t
 
     wants_top = ("most" in t or "top" in t) and ("high risk" in t or "gambling" in t)
     wants_loan = any(
@@ -77,37 +126,41 @@ def _detect_mode(user_text: str) -> str:
             "annual income",
             "speculative trading",
             "do not engage",
-            "do not",
         ]
     )
 
-    if has_quant_label and has_researcher_label:
-        return "top_then_loan"
+    wants_stock = bool(re.search(r"\$[A-Za-z]{1,10}\b", user_text)) or bool(
+        re.search(r"\b(stock|share)\s+price\b", t)
+        or re.search(r"\bprice\s+of\b", t)
+        or re.search(r"\bticker\b", t)
+        or re.search(r"\bquote\b", t)
+        or re.search(r"\blatest\s+price\b", t)
+    )
+
+    wants_sentiment = ("analyze sentiment" in t) or t.strip().startswith("sentiment:")
+
+    if wants_sentiment:
+        return "sentiment"
+    if wants_stock:
+        return "stock_price"
+
     if wants_top and wants_loan:
         return "top_then_loan"
     if wants_top:
         return "top_risk"
     if wants_loan:
         return "loan_query"
+
     return "unknown"
 
 
 def _extract_doc_query(user_text: str) -> Optional[str]:
-    t = user_text or ""
-    tl = t.lower()
-
-    if "researcher:" in tl:
-        seg = t[tl.index("researcher:") + len("researcher:") :].strip()
-    else:
-        seg = t.strip()
-
+    seg = (user_text or "").strip()
     seg_l = seg.lower()
 
-    # Priority 1: explicit income source intent anywhere in the request
     if "income source" in seg_l or "source of income" in seg_l or "stated income source" in seg_l:
         return "income source"
 
-    # Priority 2: if user says "then ... for X", capture X
     m = re.search(r"(?i)\bthen\b.*?\bfor\b\s+(.+)$", seg)
     if m:
         candidate = m.group(1).strip().strip(".")
@@ -117,20 +170,14 @@ def _extract_doc_query(user_text: str) -> Optional[str]:
                 return "income source"
             return candidate
 
-    # Priority 3: quoted strings, but ignore quotes that look like transaction categories
     quoted = re.findall(r"['\"]([^'\"]+)['\"]", seg)
     for q in quoted:
         ql = q.lower()
-        if "gambling" in ql or "high risk" in ql or "risk" in ql:
+        if "gambling" in ql or "high risk" in ql:
             continue
         return q.strip()
 
-    # Fallback: strip common verbs and return remaining phrase
     cleaned = re.sub(r"(?i)^\s*(confirm|check|pull|search|find|retrieve|tell me)\b\s*", "", seg).strip()
-
-    # Polish: remove filler phrases that hurt retrieval quality
-    cleaned = re.sub(r"(?i)\bthe line for\b", "", cleaned).strip()
-    cleaned = re.sub(r"(?i)\bline for\b", "", cleaned).strip()
     cleaned = cleaned.strip().strip(".").strip()
 
     return cleaned if len(cleaned) >= 3 else None
@@ -148,20 +195,6 @@ def _extract_customer_id_and_count(table_text: str):
             cid = parts[0].lower()
             cnt_str = re.sub(r"[^\d]", "", parts[1])
             cnt = int(cnt_str) if cnt_str.isdigit() else None
-            return cid, cnt
-
-    header_idx = None
-    for i, ln in enumerate(lines):
-        if "customer_id" in ln and ("high_risk_count" in ln or "count" in ln.lower()):
-            header_idx = i
-            break
-
-    if header_idx is not None and header_idx + 1 < len(lines):
-        row = lines[header_idx + 1]
-        parts = row.split()
-        if len(parts) >= 2 and re.fullmatch(r"[a-f0-9]{8}", parts[0].lower()):
-            cid = parts[0].lower()
-            cnt = int(parts[1]) if parts[1].isdigit() else None
             return cid, cnt
 
     m = re.search(r"\b([a-f0-9]{8})\b\s+(\d+)\b", text.lower())
@@ -199,8 +232,8 @@ def _extract_fact_line(text: str, doc_query: Optional[str]) -> Optional[str]:
         if not lnl:
             continue
 
-        if "do not engage" in q or "speculative trading" in q:
-            if "do not engage" in lnl or "speculative trading" in lnl:
+        if "speculative" in q:
+            if "do not engage" in lnl or "speculative" in lnl:
                 return ln.strip()
 
         if "annual income" in q:
@@ -221,14 +254,20 @@ def supervisor_node(state: AgentState):
     is_new_request = user_text != (state.get("last_user_text") or "")
     updates: AgentState = {"mode": mode, "last_user_text": user_text}
 
-    # Reset per new user request so prompts behave independently
     if is_new_request:
         updates["quant_attempts"] = 0
         updates["research_attempts"] = 0
+        updates["market_attempts"] = 0
+        updates["sentiment_attempts"] = 0
+
         updates["doc_query"] = None
         updates["loan_excerpt"] = None
         updates["income_source"] = None
         updates["doc_fact_line"] = None
+
+        updates["ticker"] = None
+        updates["market_result"] = None
+        updates["sentiment_result"] = None
 
         if mode in ["top_risk", "top_then_loan"]:
             updates["customer_id"] = None
@@ -238,9 +277,15 @@ def supervisor_node(state: AgentState):
     if explicit_cid:
         updates["customer_id"] = explicit_cid
 
-    doc_query = _extract_doc_query(user_text)
-    if doc_query:
-        updates["doc_query"] = doc_query
+    if mode in ["loan_query", "top_then_loan"]:
+        doc_query = _extract_doc_query(user_text)
+        if doc_query:
+            updates["doc_query"] = doc_query
+
+    if mode == "stock_price":
+        ticker = _extract_ticker(user_text)
+        if ticker:
+            updates["ticker"] = ticker
 
     customer_id = updates.get("customer_id", state.get("customer_id"))
     has_customer = bool(customer_id)
@@ -249,11 +294,30 @@ def supervisor_node(state: AgentState):
         updates.get("high_risk_count") if "high_risk_count" in updates else state.get("high_risk_count")
     ) is not None
 
-    has_doc = bool(updates.get("loan_excerpt", None) or state.get("loan_excerpt", None))
-    has_income = bool(updates.get("income_source", None) or state.get("income_source", None))
+    has_doc = bool(updates.get("loan_excerpt") or state.get("loan_excerpt"))
+    has_income = bool(updates.get("income_source") or state.get("income_source"))
+
+    has_market = bool(updates.get("market_result") or state.get("market_result"))
+    has_sentiment = bool(updates.get("sentiment_result") or state.get("sentiment_result"))
 
     quant_attempts = updates.get("quant_attempts", state.get("quant_attempts", 0))
     research_attempts = updates.get("research_attempts", state.get("research_attempts", 0))
+    market_attempts = updates.get("market_attempts", state.get("market_attempts", 0))
+    sentiment_attempts = updates.get("sentiment_attempts", state.get("sentiment_attempts", 0))
+
+    if mode == "stock_price":
+        if has_market:
+            return {"next": "Final", **updates}
+        if market_attempts >= 1:
+            return {"next": "Final", **updates}
+        return {"next": "Market", **updates}
+
+    if mode == "sentiment":
+        if has_sentiment:
+            return {"next": "Final", **updates}
+        if sentiment_attempts >= 1:
+            return {"next": "Final", **updates}
+        return {"next": "Sentiment", **updates}
 
     if mode == "top_risk":
         if quant_attempts >= 2:
@@ -271,7 +335,7 @@ def supervisor_node(state: AgentState):
         if has_income or has_doc:
             return {"next": "Final", **updates}
 
-        if research_attempts >= 3:
+        if research_attempts >= 2:
             return {"next": "Final", **updates}
         return {"next": "Researcher", **updates}
 
@@ -284,7 +348,7 @@ def supervisor_node(state: AgentState):
         if has_income or has_doc:
             return {"next": "Final", **updates}
 
-        if research_attempts >= 3:
+        if research_attempts >= 2:
             return {"next": "Final", **updates}
         return {"next": "Researcher", **updates}
 
@@ -324,6 +388,38 @@ def researcher_node(state: AgentState):
     return {"messages": [msg], "research_attempts": state.get("research_attempts", 0) + 1}
 
 
+def market_node(state: AgentState):
+    ticker = state.get("ticker") or ""
+    tool_call_id = str(uuid.uuid4())
+    msg = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": tool_call_id,
+                "name": "get_stock_price",
+                "args": {"ticker": ticker},
+            }
+        ],
+    )
+    return {"messages": [msg], "market_attempts": state.get("market_attempts", 0) + 1}
+
+
+def sentiment_node(state: AgentState):
+    user_text = _get_last_user_text(state)
+    tool_call_id = str(uuid.uuid4())
+    msg = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "id": tool_call_id,
+                "name": "analyze_sentiment",
+                "args": {"text": user_text},
+            }
+        ],
+    )
+    return {"messages": [msg], "sentiment_attempts": state.get("sentiment_attempts", 0) + 1}
+
+
 def extractor_node(state: AgentState):
     if not state.get("messages"):
         return {}
@@ -332,32 +428,41 @@ def extractor_node(state: AgentState):
     if getattr(last_msg, "type", "") != "tool":
         return {}
 
+    tool_name = getattr(last_msg, "name", "") or ""
     content = getattr(last_msg, "content", "") or ""
     updates: AgentState = {}
 
-    if "customer_id" in content and ("high_risk_count" in content or "count" in content.lower()):
+    if tool_name == "query_ledger":
         cid, cnt = _extract_customer_id_and_count(content)
         if cid:
             updates["customer_id"] = cid
         if cnt is not None:
             updates["high_risk_count"] = cnt
 
-    if content.startswith("Document Excerpt for"):
-        updates["loan_excerpt"] = content
+    if tool_name == "search_loan_documents":
+        if content.startswith("Document Excerpt for"):
+            updates["loan_excerpt"] = content
 
-        inc = _extract_income_source(content)
-        if inc:
-            updates["income_source"] = inc
+            inc = _extract_income_source(content)
+            if inc:
+                updates["income_source"] = inc
 
-        fact = _extract_fact_line(content, state.get("doc_query"))
-        if fact:
-            updates["doc_fact_line"] = fact
+            fact = _extract_fact_line(content, state.get("doc_query"))
+            if fact:
+                updates["doc_fact_line"] = fact
+
+    if tool_name == "get_stock_price":
+        updates["market_result"] = content
+
+    if tool_name == "analyze_sentiment":
+        updates["sentiment_result"] = content
 
     return updates
 
 
 def final_node(state: AgentState):
     mode = state.get("mode") or "unknown"
+
     customer_id = state.get("customer_id")
     cnt = state.get("high_risk_count")
 
@@ -365,6 +470,22 @@ def final_node(state: AgentState):
     income_source = state.get("income_source")
     excerpt = state.get("loan_excerpt")
     fact_line = state.get("doc_fact_line")
+
+    ticker = state.get("ticker")
+    market_result = state.get("market_result")
+    sentiment_result = state.get("sentiment_result")
+
+    if mode == "stock_price":
+        if not ticker:
+            return {"messages": [AIMessage(content="Tell me the ticker, like $AAPL or TSLA, and I will fetch the latest price.")]}
+        if market_result:
+            return {"messages": [AIMessage(content=market_result)]}
+        return {"messages": [AIMessage(content=f"Market data is unavailable right now for {ticker}. Try again shortly.")]}
+
+    if mode == "sentiment":
+        if sentiment_result:
+            return {"messages": [AIMessage(content=sentiment_result)]}
+        return {"messages": [AIMessage(content="Sentiment analysis is unavailable right now.")]}
 
     if mode == "top_risk":
         if not customer_id:
@@ -394,22 +515,17 @@ def final_node(state: AgentState):
 
         return {"messages": [AIMessage(content=f"{lead}\nI could not retrieve the loan application PDF for that customer.")]}
 
-    if customer_id and cnt is not None and income_source:
-        text = (
-            f"Customer with the most 'Gambling/High Risk' transactions: **{customer_id}** (**{cnt}** transactions).\n"
-            f"Income source stated on their loan application: **{income_source}**"
-        )
-        return {"messages": [AIMessage(content=text)]}
-
-    return {"messages": [AIMessage(content="Ask me to find the top Gambling or High Risk customer, or to check a loan PDF for a specific fact.")]}    
+    return {"messages": [AIMessage(content="Try asking for: top Gambling/High Risk customer, loan PDF lookup for a customer id, stock price for $AAPL, or Sentiment: <text>.")]}    
 
 
-tool_node = ToolNode(quant_tools + researcher_tools)
+tool_node = ToolNode([query_ledger, search_loan_documents, get_stock_price, analyze_sentiment])
 
 workflow = StateGraph(AgentState)
 workflow.add_node("Supervisor", supervisor_node)
 workflow.add_node("Quant", quant_node)
 workflow.add_node("Researcher", researcher_node)
+workflow.add_node("Market", market_node)
+workflow.add_node("Sentiment", sentiment_node)
 workflow.add_node("Tools", tool_node)
 workflow.add_node("Extractor", extractor_node)
 workflow.add_node("Final", final_node)
@@ -419,7 +535,13 @@ workflow.add_edge(START, "Supervisor")
 workflow.add_conditional_edges(
     "Supervisor",
     lambda s: s["next"],
-    {"Quant": "Quant", "Researcher": "Researcher", "Final": "Final"},
+    {
+        "Quant": "Quant",
+        "Researcher": "Researcher",
+        "Market": "Market",
+        "Sentiment": "Sentiment",
+        "Final": "Final",
+    },
 )
 
 
@@ -431,6 +553,8 @@ def _should_continue(state: AgentState):
 
 workflow.add_conditional_edges("Quant", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
 workflow.add_conditional_edges("Researcher", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
+workflow.add_conditional_edges("Market", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
+workflow.add_conditional_edges("Sentiment", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
 
 workflow.add_edge("Tools", "Extractor")
 workflow.add_edge("Extractor", "Supervisor")

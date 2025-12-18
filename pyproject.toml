@@ -27,4 +27,5 @@ dependencies = [
     "torch>=2.9.1",
     "transformers>=4.57.3",
     "yfinance>=0.2.66",
+    "requests>=2.32.0",
 ]

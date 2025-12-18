@@ -1,16 +1,16 @@
 # PeakWhale™ Helm
 
-### Multi Agent Financial Intelligence System (Local First, Open Source, Demo First)
+### Helm: MCP Enabled RAG Engine for Agent to Agent Context
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
-![Chainlit](https://img.shields.io/badge/Chainlit-UI%20%26%20Observability-informational)
+![Chainlit](https://img.shields.io/badge/Chainlit-Chat%20UI-informational)
+![LangGraph](https://img.shields.io/badge/LangGraph-Orchestration-9cf)
 ![DuckDB](https://img.shields.io/badge/DuckDB-Local%20Analytics%20DB-yellow)
 ![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-success)
 ![SentenceTransformers](https://img.shields.io/badge/SentenceTransformers-Embeddings-9cf)
-![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM%20Runtime-lightgrey)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
-PeakWhale™ Helm is a local first, multi agent AI system that demonstrates how enterprises can combine structured financial data and unstructured documents to produce grounded, explainable answers in a clean, auditable workflow.
+PeakWhale™ Helm is a local first, multi agent financial intelligence system. It demonstrates how enterprises can combine structured financial data and unstructured documents to produce grounded, explainable answers in a clean, auditable workflow.
 
 ![PeakWhale™ Helm Architecture](docs/architecture.png)
 
@@ -22,11 +22,12 @@ In real enterprises, critical signals are fragmented across systems.
 * Supporting evidence lives in documents like loan applications, policy forms, emails, and PDFs
 * Teams manually connect the dots, which slows decisions, increases cost, and makes outcomes harder to reproduce and audit
 
-PeakWhale™ Helm shows how an agentic architecture can automate this end to end workflow locally, while keeping reasoning explainable and tool usage visible.
+PeakWhale™ Helm shows how an agentic architecture can automate this end to end workflow locally, while keeping tool usage visible.
 
 ## Important Notice
 
-All data in this repository is 100% synthetic.
+All data in this repository is 100 percent synthetic.
+
 Customer names, transaction values, merchants, and PDFs are randomly generated for demonstration purposes only.
 
 ## What PeakWhale™ Helm Does
@@ -39,67 +40,99 @@ Find the customer with the most Gambling High Risk transactions, then check thei
 
 Behind the scenes, multiple agents collaborate to:
 
-1. Query a financial ledger using SQL
+1. Query a financial ledger using SQL (Structured Query Language)
 2. Search loan application PDFs using embeddings and vector search
-3. Merge results into a single grounded answer
-4. Explain how the answer was derived
-
-All locally, without cloud APIs.
+3. Fetch basic market prices without API keys for demo prompts
+4. Run sentiment analysis on financial text
+5. Merge results into a single grounded answer, with tool calls shown in the UI
 
 ## System Architecture
 
-PeakWhale™ Helm is built around a simple orchestration pattern. A Supervisor agent routes the request to specialized agents and tools, then combines the results into a final answer.
+PeakWhale™ Helm is built around a supervisor style orchestration pattern using LangGraph.
 
-Key components:
+High level flow:
 
-* Chainlit UI provides the chat experience and tool call visibility
-* Supervisor Agent routes intent and orchestrates the flow
-* Quant Agent performs SQL analysis over DuckDB
-* Researcher Agent performs semantic search over loan PDFs
-* Extractor normalizes facts into shared state
-* DuckDB Ledger is the local transaction database
-* PDF Vault stores synthetic loan documents
-* FAISS provides the vector index for retrieval
-* Local LLM via Ollama provides reasoning and response generation
+1. User sends a message in the Chainlit chat UI (User Interface)
+2. Orchestration layer (Supervisor) performs intent routing and control
+3. One of four specialized agents runs tools against local and external demo sources
+4. Results are normalized into shared state and returned as a single response
 
-## Example End to End Flow
+Core components:
 
-### User prompt
+* Chainlit chat UI with tool call visibility
+* Orchestration layer using LangGraph StateGraph
+* Tool layer using LangChain tools
+
+Four agents:
+
+* Quant Agent
+  Queries DuckDB ledger with SQL
+  Example tool: `query_ledger`
+
+* Researcher Agent
+  Searches loan PDFs using Retrieval Augmented Generation (RAG)
+  Embeddings via SentenceTransformers and a FAISS (Facebook AI Similarity Search) vector store
+  Example tool: `search_loan_documents`
+
+* Market Agent
+  Fetches basic daily close prices with a free source (Stooq) and no API key
+  Optional fallback to yfinance if it works on your network
+  Example tool: `get_stock_price`
+
+* Sentiment Agent
+  Runs FinBERT sentiment classification for financial text
+  Example tool: `analyze_sentiment`
+
+Local data sources:
+
+* DuckDB ledger at `data/ledger.duckdb`
+* PDF vault at `data/vault/`
+
+Optional integration points:
+
+* MCP (Model Context Protocol) ready dependency set for exposing tools and context across agent boundaries
+* Local LLM (Large Language Model) runtime via Ollama for future expansions and richer generation
+
+## Prompts To Try
+
+Quant:
+
+```text
+Find the customer with the most Gambling High Risk transactions.
+```
+
+Researcher:
+
+```text
+Researcher: for customer 2631d00b, find the income source in the loan application.
+```
+
+Market:
+
+```text
+Get stock price for $AAPL
+```
+
+```text
+Get the latest stock price for TSLA.
+```
+
+Sentiment:
+
+```text
+Sentiment: Credit risk rising as delinquencies accelerate, guidance lowered, costs up.
+```
+
+Full multi step:
 
 ```text
 Find the customer with the most Gambling High Risk transactions, then check their loan application for income source.
 ```
 
-### Execution
-
-1. Supervisor detects a multi step request
-2. Quant Agent queries DuckDB to find the top customer
-3. Researcher Agent searches the PDF vault for that customer’s loan application details
-4. Extractor merges structured and unstructured facts into shared state
-5. The LLM produces a grounded answer, and Chainlit shows tool calls and outputs
-
-### Example answer
-
-```text
-Customer ID: 2631d00b
-High Risk transactions: 8
-Income source: Freelance Consulting
-```
-
-## Tech Stack
-
-* Python 3.11+
-* DuckDB, local analytical database
-* Chainlit, UI and logging
-* FAISS, vector search
-* SentenceTransformers all MiniLM L6 v2 embeddings
-* Ollama, local LLM runtime
-* UV, Python environment and dependency management
-
 ## Repository Structure
 
 ```text
-peakwhale-helm/
+helm/
   app.py
   main.py
   src/
@@ -115,6 +148,7 @@ peakwhale-helm/
       .gitkeep
   docs/
     architecture.png
+  chainlit.md
   README.md
   LICENSE
   pyproject.toml
@@ -126,9 +160,9 @@ peakwhale-helm/
 ### Prerequisites
 
 * Python 3.11 or newer
-* UV installed
-* Ollama installed and running
-* DuckDB installed if you want the CLI viewer
+* uv installed (Python dependency and environment manager)
+* Optional: Ollama installed and running (not required for the core demo)
+* Optional: DuckDB CLI if you want to browse the database manually
 
 ### Install dependencies
 
@@ -171,13 +205,11 @@ http://localhost:8000
 
 ### View the DuckDB database
 
-Open the DuckDB shell against the local file:
-
 ```bash
 duckdb data/ledger.duckdb
 ```
 
-Useful commands:
+Useful queries:
 
 ```sql
 SHOW TABLES;
@@ -194,16 +226,16 @@ Open:
 data/vault/
 ```
 
-Then double click any PDF to view it.
+Then open any generated PDF.
 
 ## Why This Project Exists
 
-PeakWhale™ Helm demonstrates enterprise style AI architecture patterns:
+PeakWhale™ Helm demonstrates enterprise style GenAI (Generative AI) architecture patterns:
 
 * Agent orchestration and routing
-* Deterministic tool usage
-* Retrieval grounded answers
-* Clear separation of concerns
+* Deterministic tool usage with visible traces in the UI
+* Retrieval grounded answers across structured and unstructured sources
+* Clean separation of concerns across agents and tools
 * Local first operation for privacy and reproducibility
 
 ## Part of the PeakWhale™ Ecosystem
@@ -221,4 +253,3 @@ MIT License
 ## Author
 
 Built by Addy
-
