@@ -2,8 +2,6 @@
 
 ### Multi Agent Financial Intelligence System (Local First, Open Source, Demo First)
 
-![PeakWhale™ Helm Architecture](docs/architecture.png)
-
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![Chainlit](https://img.shields.io/badge/Chainlit-UI%20%26%20Observability-informational)
 ![DuckDB](https://img.shields.io/badge/DuckDB-Local%20Analytics%20DB-yellow)
@@ -14,6 +12,7 @@
 
 PeakWhale™ Helm is a local first, multi agent AI system that demonstrates how enterprises can combine structured financial data and unstructured documents to produce grounded, explainable answers in a clean, auditable workflow.
 
+![PeakWhale™ Helm Architecture](docs/architecture.png)
 If the architecture image does not render on GitHub, confirm the file exists at `docs/architecture.png` and is committed to the repository.
 
 ## Enterprise Business Problem
