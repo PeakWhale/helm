@@ -1,5 +1,5 @@
-````md
 # ⚓ PeakWhale™ Helm
+
 ### Multi Agent Financial Intelligence System (Local • Open Source • Demo First)
 
 PeakWhale™ Helm is a local first multi agent AI system that demonstrates how agentic architectures can analyze structured financial data and unstructured documents together in a clean explainable enterprise style workflow.
@@ -7,16 +7,19 @@ PeakWhale™ Helm is a local first multi agent AI system that demonstrates how a
 This project is part of the PeakWhale™ open source ecosystem built to showcase real world AI architecture patterns for recruiters engineers and practitioners.
 
 ## Important Notice
-All data in this repository is 100 percent synthetic.  
-Customer names transaction values merchants documents and PDFs are randomly generated and used for demonstration purposes only.
+
+All data in this repository is 100 percent synthetic.
+Customer names transaction values merchants documents and PDF which stands for Portable Document Format files are randomly generated and used for demonstration purposes only.
+
+---
 
 ## What PeakWhale™ Helm Does
 
 In real enterprises insights are fragmented.
 
-- Transactions live in databases  
-- Supporting evidence lives in documents  
-- Analysts manually connect the dots  
+* Transactions live in databases
+* Supporting evidence lives in documents
+* Analysts manually connect the dots
 
 PeakWhale™ Helm shows how AI agents can do this automatically.
 
@@ -24,7 +27,7 @@ Example prompt you can ask
 
 ```text
 Find the customer with the most Gambling High Risk transactions and check their loan application for income source.
-````
+```
 
 Behind the scenes multiple agents collaborate to
 
@@ -35,11 +38,15 @@ Behind the scenes multiple agents collaborate to
 
 All locally without cloud APIs.
 
+---
+
 ## System Architecture
 
-If the image does not render on GitHub confirm the file name matches exactly and that it is committed to the repo under the docs folder.
+Make sure this file exists and is committed exactly here
 
-<img src="./docs/peakwhale-helm-architecture.png" alt="PeakWhale™ Helm Architecture" width="900" />
+`docs/architecture.png`
+
+<img src="docs/architecture.png" alt="PeakWhale™ Helm Architecture" width="900" />
 
 ### Architecture Overview
 
@@ -54,6 +61,8 @@ If the image does not render on GitHub confirm the file name matches exactly and
 | PDF Vault                                                  | Synthetic loan applications stored as PDFs               |
 | FAISS which stands for Facebook AI Similarity Search       | Vector index for document retrieval                      |
 | Local LLM which stands for Large Language Model via Ollama | Reasoning and response generation                        |
+
+---
 
 ## Example End to End Flow
 
@@ -79,6 +88,8 @@ High Risk transactions: 8
 Income source: Freelance Consulting
 ```
 
+---
+
 ## Technology Stack
 
 * Python 3.11
@@ -90,28 +101,32 @@ Income source: Freelance Consulting
 * Ollama for local LLM runtime
 * uv for Python environment management
 
+---
+
 ## Repository Structure
 
 ```text
 peakwhale-helm/
-├── app.py
-├── main.py
-├── src/
-│   ├── graph.py
-│   ├── tools.py
-│   ├── seed_data.py
-│   └── generate_docs.py
-├── scripts/
-│   └── demo_reset.py
-├── data/
-│   ├── ledger.duckdb
-│   └── vault/
-├── docs/
-│   └── peakwhale-helm-architecture.png
-├── README.md
-├── LICENSE
-└── pyproject.toml
+  app.py
+  main.py
+  src/
+    graph.py
+    tools.py
+    seed_data.py
+    generate_docs.py
+  scripts/
+    demo_reset.py
+  data/
+    ledger.duckdb
+    vault/
+  docs/
+    architecture.png
+  README.md
+  LICENSE
+  pyproject.toml
 ```
+
+---
 
 ## Quick Start
 
@@ -130,7 +145,7 @@ uv sync
 
 ### Reset demo data
 
-Use the Makefile target
+Using Make
 
 ```bash
 make demo
@@ -159,9 +174,11 @@ Open
 http://localhost:8000
 ```
 
+---
+
 ## Viewing Data Manually
 
-### DuckDB CLI
+### DuckDB CLI which stands for Command Line Interface
 
 ```bash
 duckdb data/ledger.duckdb
@@ -186,6 +203,8 @@ data/vault/
 
 Then double click any PDF.
 
+---
+
 ## Why This Project Exists
 
 PeakWhale™ Helm demonstrates
@@ -198,6 +217,8 @@ PeakWhale™ Helm demonstrates
 
 This project is intentionally interview ready.
 
+---
+
 ## Part of the PeakWhale™ Ecosystem
 
 * PeakWhale™ Orca real time fraud detection
@@ -205,16 +226,16 @@ This project is intentionally interview ready.
 * PeakWhale™ Sonar automated threat detection
 * PeakWhale™ Delta decision support systems
 
+---
+
 ## License
 
 MIT License
 © 2025 PeakWhale™
 
+---
+
 ## Author
 
 Built by Addy
-AI systems agentic architectures enterprise ML
-
-```
-::contentReference[oaicite:0]{index=0}
-```
+AI systems agentic architectures enterprise machine learning
