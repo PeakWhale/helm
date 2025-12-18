@@ -1,0 +1,55 @@
+# ----------------------------
+# Peakwhale Helm .gitignore
+# ----------------------------
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.pkl
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Chainlit
+.chainlit/
+
+# Local models and caches (Hugging Face)
+.cache/
+huggingface/
+**/.cache/
+
+# Data artifacts (generated demo data)
+data/ledger.duckdb
+data/**/*.duckdb
+data/**/*.db
+data/vault/*.pdf
+data/logs/
+
+# Build and dist
+build/
+dist/
+*.egg-info/
+
+# Misc
+*.tmp
+*.bak
+*.swp
