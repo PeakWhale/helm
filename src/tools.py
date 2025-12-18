@@ -1,24 +1,51 @@
+# tools.py
+"""
+MCP Tool Server (stdio)
+
+Important:
+For stdio based MCP servers, do not print to stdout. Use logging (stderr) instead.
+"""
+
 import os
 import re
 import io
 import csv
 import time
-import duckdb
-import yfinance as yf
-import requests
+import sys
+import logging
+from typing import Optional, Tuple
 
-from langchain_core.tools import tool
+import duckdb
+import requests
+import yfinance as yf
+
 from transformers import pipeline
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
-print("⚙️ Loading Peakwhale Helm Tools...")
+from mcp.server.fastmcp import FastMCP
+
+
+logger = logging.getLogger("helm.mcp.tools")
+logging.basicConfig(
+    level=os.environ.get("HELM_LOG_LEVEL", "INFO"),
+    stream=sys.stderr,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+
+mcp = FastMCP("helm_tools")
 
 _VECTOR_CACHE = {}
 
 _HTTP_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    ),
     "Accept-Language": "en-US,en;q=0.9",
 }
 
@@ -35,9 +62,6 @@ def _to_stooq_symbol(ticker: str) -> str:
     if not t:
         return ""
 
-    # Stooq uses:
-    # US stocks: aapl.us, tsla.us
-    # Indices often like ^spx -> spx (but Stooq has its own naming; keep simple for demo)
     if t.startswith("^"):
         t = t[1:]
 
@@ -47,14 +71,14 @@ def _to_stooq_symbol(ticker: str) -> str:
     return f"{t.lower()}.us"
 
 
-def _fetch_stooq_daily_close(ticker: str):
+def _fetch_stooq_daily_close(ticker: str) -> Tuple[Optional[float], Optional[str], Optional[str]]:
     sym = _to_stooq_symbol(ticker)
     if not sym:
         return None, None, "Invalid ticker format."
 
     urls = [
-        f"https://stooq.com/q/d/l/?s={sym}&i=d",  # Date,Open,High,Low,Close,Volume
-        f"https://stooq.com/q/l/?s={sym}&i=d",    # Symbol,Date,Time,Open,High,Low,Close,Volume
+        f"https://stooq.com/q/d/l/?s={sym}&i=d",
+        f"https://stooq.com/q/l/?s={sym}&i=d",
     ]
 
     def looks_like_html(s: str) -> bool:
@@ -83,7 +107,7 @@ def _fetch_stooq_daily_close(ticker: str):
 
             if looks_like_html(text):
                 snippet = " ".join(text[:160].split())
-                last_err = f"Stooq returned HTML (blocked or redirected). Snippet: {snippet}"
+                last_err = f"Stooq returned HTML. Snippet: {snippet}"
                 continue
 
             reader = csv.DictReader(io.StringIO(text))
@@ -128,9 +152,27 @@ def _fetch_stooq_daily_close(ticker: str):
     return None, None, last_err or "Stooq fetch failed"
 
 
-@tool
-def query_ledger(sql_query: str):
-    """Executes a SQL query against the internal bank ledger."""
+logger.info("Loading sentiment model and embeddings in MCP tool server")
+
+try:
+    sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+except Exception as e:
+    logger.warning("FinBERT load failed: %s", e)
+    sentiment_pipeline = None
+
+try:
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+except Exception as e:
+    logger.warning("Embeddings load failed: %s", e)
+    embeddings = None
+
+
+@mcp.tool()
+def query_ledger(sql_query: str) -> str:
+    """
+    Executes a Structured Query Language (SQL) query against the internal bank ledger (DuckDB).
+    Returns a markdown table.
+    """
     sanitized_query = sql_query or ""
     try:
         sanitized_query = (
@@ -140,12 +182,17 @@ def query_ledger(sql_query: str):
             .replace("’", "'")
         )
 
-        sanitized_query = re.sub(r"COUNT\s*\(\s*\)", "COUNT(*)", sanitized_query, flags=re.IGNORECASE)
+        sanitized_query = re.sub(
+            r"COUNT\s*\(\s*\)",
+            "COUNT(*)",
+            sanitized_query,
+            flags=re.IGNORECASE,
+        )
 
         if re.search(r"\bloan_applications\b", sanitized_query, flags=re.IGNORECASE):
             return (
                 "SQL Error: Table 'loan_applications' is not available in this ledger database. "
-                "Use search_loan_documents to read the PDF loan application."
+                "Use search_loan_documents to read the loan application PDF."
             )
 
         con = duckdb.connect("data/ledger.duckdb", read_only=True)
@@ -161,18 +208,16 @@ def query_ledger(sql_query: str):
         return f"SQL Error: {e}\n(Sanitized Query attempted: {sanitized_query})"
 
 
-@tool
-def get_stock_price(ticker: str):
+@mcp.tool()
+def get_stock_price(ticker: str) -> str:
     """
     Fetches a stock price without requiring any API key.
-    Primary source is Stooq (daily close).
-    Falls back to yfinance if available (may be blocked).
+    Primary source is Stooq daily close, falls back to yfinance.
     """
     t = _clean_ticker(ticker)
     if not t:
         return "Error: Missing ticker. Try $AAPL or TSLA."
 
-    # Prefer Stooq (free, no key), usually more reliable than Yahoo via yfinance
     price, as_of, err = _fetch_stooq_daily_close(t)
     if price is not None:
         suffix = f"\nAs of: {as_of} (daily close, Stooq)" if as_of else "\nAs of: latest daily close (Stooq)"
@@ -180,7 +225,6 @@ def get_stock_price(ticker: str):
 
     last_err = err
 
-    # Fallback: yfinance (can be blocked or rate-limited)
     for attempt in range(2):
         try:
             stock = yf.Ticker(t)
@@ -219,16 +263,11 @@ def get_stock_price(ticker: str):
     )
 
 
-try:
-    print("   - Loading FinBERT...")
-    sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-except Exception:
-    sentiment_pipeline = None
-
-
-@tool
-def analyze_sentiment(text: str):
-    """Analyzes financial sentiment using FinBERT."""
+@mcp.tool()
+def analyze_sentiment(text: str) -> str:
+    """
+    Analyzes financial sentiment using FinBERT.
+    """
     if not sentiment_pipeline:
         return "Error: Sentiment tool unavailable."
 
@@ -241,16 +280,12 @@ def analyze_sentiment(text: str):
         return f"Error: {e}"
 
 
-print("   - Loading Embeddings...")
-try:
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-except Exception:
-    embeddings = None
-
-
-@tool
+@mcp.tool()
 def search_loan_documents(customer_id: str, query: str) -> str:
-    """Retrieves info from a customer's PDF loan application."""
+    """
+    Retrieves information from a customer's Portable Document Format (PDF) loan application
+    using embeddings plus FAISS vector search.
+    """
     if not embeddings:
         return "Error: Embeddings model not loaded."
 
@@ -269,7 +304,6 @@ def search_loan_documents(customer_id: str, query: str) -> str:
             _VECTOR_CACHE[cid] = FAISS.from_documents(pages, embeddings)
 
         vectorstore = _VECTOR_CACHE[cid]
-
         retriever = vectorstore.as_retriever(search_kwargs={"k": 1})
         docs = retriever.invoke(query or "income source")
 
@@ -283,3 +317,12 @@ def search_loan_documents(customer_id: str, query: str) -> str:
 
     except Exception as e:
         return f"Error: Failed to search document for {cid}. Details: {e}"
+
+
+def main():
+    # MCP server runs over stdio by default for local host subprocess usage
+    mcp.run(transport=os.environ.get("HELM_MCP_TRANSPORT", "stdio"))
+
+
+if __name__ == "__main__":
+    main()

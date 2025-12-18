@@ -1,16 +1,19 @@
 import operator
 import re
 import uuid
-from typing import Annotated, TypedDict, List, Optional
+import os
+import sys
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Annotated, TypedDict, List, Optional, Any
 
 from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 
-try:
-    from src.tools import query_ledger, get_stock_price, analyze_sentiment, search_loan_documents
-except ImportError:
-    from tools import query_ledger, get_stock_price, analyze_sentiment, search_loan_documents
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 
 
 class AgentState(TypedDict, total=False):
@@ -61,29 +64,6 @@ def _extract_customer_id_from_text(user_text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-_TICKER_STOPWORDS = {
-    "GET",
-    "THE",
-    "A",
-    "AN",
-    "OF",
-    "FOR",
-    "TO",
-    "STOCK",
-    "PRICE",
-    "TICKER",
-    "QUOTE",
-    "LATEST",
-    "TODAY",
-    "MARKET",
-    "DATA",
-    "CUSTOMER",
-    "RESEARCHER",
-    "QUANT",
-    "SENTIMENT",
-}
-
-
 def _extract_ticker(user_text: str) -> Optional[str]:
     t = (user_text or "").strip()
 
@@ -108,7 +88,6 @@ def _extract_ticker(user_text: str) -> Optional[str]:
     tokens = re.findall(r"\b[A-Za-z][A-Za-z0-9\.\-]{0,9}\b", t)
     candidates = [tok.upper() for tok in tokens if tok.upper() not in stop]
     return candidates[-1] if candidates else None
-
 
 
 def _detect_mode(user_text: str) -> str:
@@ -247,6 +226,37 @@ def _extract_fact_line(text: str, doc_query: Optional[str]) -> Optional[str]:
     return None
 
 
+def _tool_content_to_text(content) -> str:
+    """
+    Tool messages coming from MCP may use a list of content blocks.
+    Normalize to plain text before saving into state.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if content.get("type") == "text" and "text" in content:
+            return str(content.get("text") or "")
+        return json.dumps(content, ensure_ascii=False, indent=2)
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if item.get("type") == "text" and "text" in item:
+                    parts.append(str(item.get("text") or ""))
+                elif "text" in item:
+                    parts.append(str(item.get("text") or ""))
+                else:
+                    parts.append(json.dumps(item, ensure_ascii=False))
+            else:
+                parts.append(str(item))
+        return "\n".join([p for p in parts if p]).strip()
+    return str(content)
+
+
 def supervisor_node(state: AgentState):
     user_text = _get_last_user_text(state)
     mode = _detect_mode(user_text)
@@ -306,16 +316,12 @@ def supervisor_node(state: AgentState):
     sentiment_attempts = updates.get("sentiment_attempts", state.get("sentiment_attempts", 0))
 
     if mode == "stock_price":
-        if has_market:
-            return {"next": "Final", **updates}
-        if market_attempts >= 1:
+        if has_market or market_attempts >= 1:
             return {"next": "Final", **updates}
         return {"next": "Market", **updates}
 
     if mode == "sentiment":
-        if has_sentiment:
-            return {"next": "Final", **updates}
-        if sentiment_attempts >= 1:
+        if has_sentiment or sentiment_attempts >= 1:
             return {"next": "Final", **updates}
         return {"next": "Sentiment", **updates}
 
@@ -429,7 +435,9 @@ def extractor_node(state: AgentState):
         return {}
 
     tool_name = getattr(last_msg, "name", "") or ""
-    content = getattr(last_msg, "content", "") or ""
+    raw_content = getattr(last_msg, "content", "")
+    content = _tool_content_to_text(raw_content)
+
     updates: AgentState = {}
 
     if tool_name == "query_ledger":
@@ -515,49 +523,126 @@ def final_node(state: AgentState):
 
         return {"messages": [AIMessage(content=f"{lead}\nI could not retrieve the loan application PDF for that customer.")]}
 
-    return {"messages": [AIMessage(content="Try asking for: top Gambling/High Risk customer, loan PDF lookup for a customer id, stock price for $AAPL, or Sentiment: <text>.")]}    
-
-
-tool_node = ToolNode([query_ledger, search_loan_documents, get_stock_price, analyze_sentiment])
-
-workflow = StateGraph(AgentState)
-workflow.add_node("Supervisor", supervisor_node)
-workflow.add_node("Quant", quant_node)
-workflow.add_node("Researcher", researcher_node)
-workflow.add_node("Market", market_node)
-workflow.add_node("Sentiment", sentiment_node)
-workflow.add_node("Tools", tool_node)
-workflow.add_node("Extractor", extractor_node)
-workflow.add_node("Final", final_node)
-
-workflow.add_edge(START, "Supervisor")
-
-workflow.add_conditional_edges(
-    "Supervisor",
-    lambda s: s["next"],
-    {
-        "Quant": "Quant",
-        "Researcher": "Researcher",
-        "Market": "Market",
-        "Sentiment": "Sentiment",
-        "Final": "Final",
-    },
-)
+    return {"messages": [AIMessage(content="Try asking for: top Gambling High Risk customer, loan PDF lookup for a customer id, stock price for $AAPL, or Sentiment: <text>.")]}    
 
 
 def _should_continue(state: AgentState):
     last = state["messages"][-1]
     tcs = getattr(last, "tool_calls", None) or []
-    return "Tools" if tcs else "Supervisor"
+    return "MCPTools" if tcs else "Supervisor"
 
 
-workflow.add_conditional_edges("Quant", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
-workflow.add_conditional_edges("Researcher", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
-workflow.add_conditional_edges("Market", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
-workflow.add_conditional_edges("Sentiment", _should_continue, {"Tools": "Tools", "Supervisor": "Supervisor"})
+@dataclass
+class GraphRuntime:
+    graph: Any
+    _client: MultiServerMCPClient
+    _session_ctx: Any
 
-workflow.add_edge("Tools", "Extractor")
-workflow.add_edge("Extractor", "Supervisor")
-workflow.add_edge("Final", END)
+    @staticmethod
+    def _find_project_root(start: Path) -> Path:
+        candidates = [
+            "pyproject.toml",
+            "requirements.txt",
+            "README.md",
+            ".git",
+        ]
+        cur = start.resolve()
+        for _ in range(8):
+            for name in candidates:
+                if (cur / name).exists():
+                    return cur
+            if cur.parent == cur:
+                break
+            cur = cur.parent
+        return start.resolve()
 
-app = workflow.compile()
+    @classmethod
+    def _project_root(cls) -> Path:
+        return cls._find_project_root(Path(__file__).resolve())
+
+    @classmethod
+    def _tools_server_path(cls) -> str:
+        env_path = os.environ.get("HELM_MCP_TOOLS_PATH")
+        if env_path:
+            return env_path
+
+        root = cls._project_root()
+
+        root_tools = root / "tools.py"
+        if root_tools.exists():
+            return str(root_tools)
+
+        src_tools = root / "src" / "tools.py"
+        if src_tools.exists():
+            return str(src_tools)
+
+        return str(root / "tools.py")
+
+    @classmethod
+    async def create(cls) -> "GraphRuntime":
+        project_root = cls._project_root()
+        tools_path = cls._tools_server_path()
+
+        connections = {
+            "helm_tools": {
+                "transport": os.environ.get("HELM_MCP_TRANSPORT", "stdio"),
+                "command": os.environ.get("HELM_MCP_COMMAND", sys.executable),
+                "args": [tools_path],
+                "cwd": str(project_root),
+                "env": {
+                    **os.environ,
+                    "PYTHONUNBUFFERED": "1",
+                    "PYTHONPATH": str(project_root),
+                    "HELM_MCP_TRANSPORT": os.environ.get("HELM_MCP_TRANSPORT", "stdio"),
+                },
+            }
+        }
+
+        client = MultiServerMCPClient(connections, tool_name_prefix=False)
+
+        session_ctx = client.session("helm_tools")
+        session = await session_ctx.__aenter__()
+
+        mcp_tools = await load_mcp_tools(session, server_name="helm_tools", tool_name_prefix=False)
+        mcp_tool_node = ToolNode(mcp_tools)
+
+        workflow = StateGraph(AgentState)
+        workflow.add_node("Supervisor", supervisor_node)
+        workflow.add_node("Quant", quant_node)
+        workflow.add_node("Researcher", researcher_node)
+        workflow.add_node("Market", market_node)
+        workflow.add_node("Sentiment", sentiment_node)
+        workflow.add_node("MCPTools", mcp_tool_node)
+        workflow.add_node("Extractor", extractor_node)
+        workflow.add_node("Final", final_node)
+
+        workflow.add_edge(START, "Supervisor")
+
+        workflow.add_conditional_edges(
+            "Supervisor",
+            lambda s: s["next"],
+            {
+                "Quant": "Quant",
+                "Researcher": "Researcher",
+                "Market": "Market",
+                "Sentiment": "Sentiment",
+                "Final": "Final",
+            },
+        )
+
+        workflow.add_conditional_edges("Quant", _should_continue, {"MCPTools": "MCPTools", "Supervisor": "Supervisor"})
+        workflow.add_conditional_edges("Researcher", _should_continue, {"MCPTools": "MCPTools", "Supervisor": "Supervisor"})
+        workflow.add_conditional_edges("Market", _should_continue, {"MCPTools": "MCPTools", "Supervisor": "Supervisor"})
+        workflow.add_conditional_edges("Sentiment", _should_continue, {"MCPTools": "MCPTools", "Supervisor": "Supervisor"})
+
+        workflow.add_edge("MCPTools", "Extractor")
+        workflow.add_edge("Extractor", "Supervisor")
+        workflow.add_edge("Final", END)
+
+        graph = workflow.compile()
+        return cls(graph=graph, _client=client, _session_ctx=session_ctx)
+
+    async def aclose(self) -> None:
+        if self._session_ctx:
+            await self._session_ctx.__aexit__(None, None, None)
+            self._session_ctx = None
