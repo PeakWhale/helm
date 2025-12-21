@@ -127,6 +127,10 @@ async def end():
 @cl.on_message
 async def main(message: cl.Message):
     runtime: GraphRuntime = cl.user_session.get("runtime")
+    if not runtime:
+        await cl.Message(content="⏳ System is still initializing... Please wait a moment and try again.").send()
+        return
+
     graph = runtime.graph
 
     inputs = {"messages": [HumanMessage(content=message.content)]}

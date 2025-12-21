@@ -15,14 +15,6 @@ import sys
 import logging
 from typing import Optional, Tuple
 
-import duckdb
-import requests
-import yfinance as yf
-
-from transformers import pipeline
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
 
 from mcp.server.fastmcp import FastMCP
 
@@ -89,6 +81,7 @@ def _fetch_stooq_daily_close(ticker: str) -> Tuple[Optional[float], Optional[str
 
     for url in urls:
         try:
+            import requests
             r = requests.get(
                 url,
                 headers={**_HTTP_HEADERS, "Accept": "text/csv,*/*;q=0.8"},
@@ -152,19 +145,121 @@ def _fetch_stooq_daily_close(ticker: str) -> Tuple[Optional[float], Optional[str
     return None, None, last_err or "Stooq fetch failed"
 
 
-logger.info("Loading sentiment model and embeddings in MCP tool server")
+_SENTIMENT_PIPELINE = None
+_EMBEDDINGS = None
 
-try:
-    sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
-except Exception as e:
-    logger.warning("FinBERT load failed: %s", e)
-    sentiment_pipeline = None
 
-try:
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-except Exception as e:
-    logger.warning("Embeddings load failed: %s", e)
-    embeddings = None
+import subprocess
+import threading
+import queue
+import json
+
+class SentimentClient:
+    def __init__(self):
+        self.process = None
+        self.lock = threading.Lock()
+        self._start_process()
+
+    def _start_process(self):
+        script_path = os.path.join(os.path.dirname(__file__), "sentiment_runner.py")
+        if not os.path.exists(script_path):
+            script_path = "src/sentiment_runner.py"
+
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, script_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=sys.stderr,
+                text=True,
+                bufsize=1
+            )
+            # Wait for ready signal with a 60s timeout
+            if self.process and self.process.stdout:
+                # We use a simple polling approach for the ready signal
+                start_t = time.time()
+                line = ""
+                while time.time() - start_t < 60:
+                    # Check if process died
+                    if self.process.poll() is not None:
+                        break
+                    
+                    # Try to read line (this is still slightly tricky with non-blocking)
+                    # For simplicity on Mac/Unix, we can use a small sleep and peek
+                    # But for now, let's just use the fact it's a separate process
+                    # and we don't strictly HAVE to wait here if we don't want to block server start.
+                    # HOWEVER, user wants "upfront", so let's use a thread to read it.
+                    
+                    line = self.process.stdout.readline()
+                    if line:
+                        break
+                    time.sleep(0.1)
+
+                if "ready" not in line:
+                    logger.error("Sentiment runner failed to signal readiness: %s", line or "Timeout")
+                    # We don't kill it yet, maybe it's just slow, but we log the issue
+        except Exception as e:
+            logger.error("Failed to start sentiment subprocess: %s", e)
+            self.process = None
+
+    def analyze(self, text: str) -> str:
+        with self.lock:
+            if self.process is None or self.process.poll() is not None:
+                logger.info("Restarting sentiment subprocess...")
+                self._start_process()
+                if self.process is None:
+                    return "Error: Sentiment subprocess unavailable."
+
+            try:
+                # Send request
+                req = json.dumps({"text": text or ""}) + "\n"
+                self.process.stdin.write(req)
+                self.process.stdin.flush()
+                
+                # Read response
+                resp_line = self.process.stdout.readline()
+                if not resp_line:
+                    return "Error: Subprocess output empty (crashed?)"
+                
+                data = json.loads(resp_line)
+                if "error" in data:
+                    return f"Error: {data['error']}"
+                    
+                label = data.get("label", "UNKNOWN")
+                score = data.get("score", 0.0)
+                return f"Sentiment: {label} ({score:.2f})"
+                
+            except Exception as e:
+                logger.error("Sentiment RPC error: %s", e)
+                # Force restart on next call
+                if self.process:
+                    try:
+                        self.process.kill()
+                    except:
+                        pass
+                self.process = None
+                return f"Error: RPC failed ({e})"
+
+# Initialize upfront (in background to not block import entirely, 
+# or strictly upfront if user wants 'wait for load')
+# The user asked for "upfront", so let's let it start now.
+_SENTIMENT_CLIENT = SentimentClient()
+
+
+
+def _get_embeddings():
+    global _EMBEDDINGS
+    if _EMBEDDINGS:
+        return _EMBEDDINGS
+    
+    logger.info("Lazy loading embeddings model...")
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+        _EMBEDDINGS = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        return _EMBEDDINGS
+    except Exception as e:
+        logger.warning("Embeddings load failed: %s", e)
+        return None
 
 
 @mcp.tool()
@@ -195,6 +290,7 @@ def query_ledger(sql_query: str) -> str:
                 "Use search_loan_documents to read the loan application PDF."
             )
 
+        import duckdb
         con = duckdb.connect("data/ledger.duckdb", read_only=True)
         df = con.execute(sanitized_query).df()
         con.close()
@@ -227,6 +323,7 @@ def get_stock_price(ticker: str) -> str:
 
     for attempt in range(2):
         try:
+            import yfinance as yf
             stock = yf.Ticker(t)
 
             fi = getattr(stock, "fast_info", None)
@@ -267,17 +364,10 @@ def get_stock_price(ticker: str) -> str:
 def analyze_sentiment(text: str) -> str:
     """
     Analyzes financial sentiment using FinBERT.
+    Uses a persistent background process for low-latency inference.
     """
-    if not sentiment_pipeline:
-        return "Error: Sentiment tool unavailable."
-
-    try:
-        result = sentiment_pipeline((text or "")[:512])[0]
-        label = result.get("label", "UNKNOWN")
-        score = result.get("score", 0.0)
-        return f"Sentiment: {label} ({score:.2f})"
-    except Exception as e:
-        return f"Error: {e}"
+    # Simply delegate to the persistent client
+    return _SENTIMENT_CLIENT.analyze(text)
 
 
 @mcp.tool()
@@ -286,7 +376,8 @@ def search_loan_documents(customer_id: str, query: str) -> str:
     Retrieves information from a customer's Portable Document Format (PDF) loan application
     using embeddings plus FAISS vector search.
     """
-    if not embeddings:
+    emb_model = _get_embeddings()
+    if not emb_model:
         return "Error: Embeddings model not loaded."
 
     cid = (customer_id or "").strip().lower()
@@ -298,11 +389,19 @@ def search_loan_documents(customer_id: str, query: str) -> str:
         return f"Error: Could not find document for {cid} at {pdf_path}"
 
     try:
+        sys.stderr.write(f"[Researcher] Processing loan document for {cid}...\n")
+        
         if cid not in _VECTOR_CACHE:
+            sys.stderr.write("[Researcher] Loading PDF and creating vector index... (this may take 5-10s)\n")
+            from langchain_community.document_loaders import PyPDFLoader
+            from langchain_community.vectorstores import FAISS
+            
             loader = PyPDFLoader(pdf_path)
             pages = loader.load_and_split()
-            _VECTOR_CACHE[cid] = FAISS.from_documents(pages, embeddings)
+            _VECTOR_CACHE[cid] = FAISS.from_documents(pages, emb_model)
+            sys.stderr.write("[Researcher] Vector index created.\n")
 
+        sys.stderr.write("[Researcher] Querying vector store...\n")
         vectorstore = _VECTOR_CACHE[cid]
         retriever = vectorstore.as_retriever(search_kwargs={"k": 1})
         docs = retriever.invoke(query or "income source")
@@ -312,7 +411,8 @@ def search_loan_documents(customer_id: str, query: str) -> str:
 
         context = "\n".join([d.page_content for d in docs]).strip()
         context = context[:1200]
-
+        
+        sys.stderr.write("[Researcher] Document search complete.\n")
         return f"Document Excerpt for {cid}:\n{context}"
 
     except Exception as e:
@@ -320,6 +420,11 @@ def search_loan_documents(customer_id: str, query: str) -> str:
 
 
 def main():
+    # Also trigger embeddings load upfront for visibility (only when running as server)
+    logger.info("Initializing Embeddings model...")
+    if _get_embeddings():
+        logger.info("Embeddings model loaded.")
+
     # MCP server runs over stdio by default for local host subprocess usage
     mcp.run(transport=os.environ.get("HELM_MCP_TRANSPORT", "stdio"))
 

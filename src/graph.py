@@ -9,12 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, TypedDict, List, Optional, Any, Callable
 
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage
-from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode
-
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
+from datetime import datetime
 
 
 logger = logging.getLogger("helm.graph")
@@ -62,7 +57,7 @@ def _build_ollama_llm() -> tuple[Any, Optional[str]]:
 
 
 class AgentState(TypedDict, total=False):
-    messages: Annotated[List[BaseMessage], operator.add]
+    messages: Annotated[Any, operator.add]
     next: str
 
     last_user_text: Optional[str]
@@ -112,24 +107,28 @@ def _extract_customer_id_from_text(user_text: str) -> Optional[str]:
 def _extract_ticker(user_text: str) -> Optional[str]:
     t = (user_text or "").strip()
 
+    stop = {
+        "GET", "LATEST", "STOCK", "PRICE", "TICKER", "WHAT", "IS", "THE", "OF", "FOR",
+        "PLEASE", "CAN", "YOU", "QUOTE", "MARKET", "DATA", "CUSTOMER", "RESEARCHER",
+        "QUANT", "SENTIMENT", "ANALYZE", "INCOME", "SOURCE", "LOAN", "APPLICATION",
+        "CHECK", "FIND", "THEIR", "RESILIENCE", "STRONG", "SECTOR", "TECH", "SHOWING"
+    }
+
+    # 1. Explicit $TICKER
+    # We find ALL matches and pick the first one that looks valid? Usually $TICKER is unambiguous.
     m = re.search(r"\$([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", t)
     if m:
         return m.group(1).upper()
 
-    m = re.search(r"(?i)\bfor\s+\$?([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", t)
-    if m:
-        return m.group(1).upper()
+    # 2. "for X" or "of X", but X must not be a stopword
+    # usage: re.finditer to check all "for X" candidates
+    for pat in [r"(?i)\bfor\s+\$?([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", r"(?i)\bof\s+\$?([A-Za-z][A-Za-z0-9\.\-]{0,9})\b"]:
+        for match in re.finditer(pat, t):
+            candidate = match.group(1).upper()
+            if candidate not in stop:
+                return candidate
 
-    m = re.search(r"(?i)\bof\s+\$?([A-Za-z][A-Za-z0-9\.\-]{0,9})\b", t)
-    if m:
-        return m.group(1).upper()
-
-    stop = {
-        "GET", "LATEST", "STOCK", "PRICE", "TICKER", "WHAT", "IS", "THE", "OF", "FOR",
-        "PLEASE", "CAN", "YOU", "QUOTE", "MARKET", "DATA", "CUSTOMER", "RESEARCHER",
-        "QUANT", "SENTIMENT", "ANALYZE", "INCOME", "SOURCE", "LOAN", "APPLICATION"
-    }
-
+    # 3. Last fallback: just the last valid capitalized token
     tokens = re.findall(r"\b[A-Za-z][A-Za-z0-9\.\-]{0,9}\b", t)
     candidates = [tok.upper() for tok in tokens if tok.upper() not in stop]
     return candidates[-1] if candidates else None
@@ -163,13 +162,17 @@ def _detect_mode(user_text: str) -> str:
 
     wants_sentiment = ("analyze sentiment" in t) or t.strip().startswith("sentiment:")
 
+    if wants_top and wants_loan and wants_stock and wants_sentiment:
+        return "omni_mode"
+
+    if wants_top and wants_loan:
+        return "top_then_loan"
+
     if wants_sentiment:
         return "sentiment"
     if wants_stock:
         return "stock_price"
 
-    if wants_top and wants_loan:
-        return "top_then_loan"
     if wants_top:
         return "top_risk"
     if wants_loan:
@@ -320,7 +323,7 @@ def supervisor_node(state: AgentState):
         updates["market_result"] = None
         updates["sentiment_result"] = None
 
-        if mode in ["top_risk", "top_then_loan"]:
+        if mode in ["top_risk", "top_then_loan", "omni_mode"]:
             updates["customer_id"] = None
             updates["high_risk_count"] = None
 
@@ -328,12 +331,12 @@ def supervisor_node(state: AgentState):
     if explicit_cid:
         updates["customer_id"] = explicit_cid
 
-    if mode in ["loan_query", "top_then_loan"]:
+    if mode in ["loan_query", "top_then_loan", "omni_mode"]:
         doc_query = _extract_doc_query(user_text)
         if doc_query:
             updates["doc_query"] = doc_query
 
-    if mode == "stock_price":
+    if mode == "stock_price" or mode == "omni_mode":
         ticker = _extract_ticker(user_text)
         if ticker:
             updates["ticker"] = ticker
@@ -386,23 +389,37 @@ def supervisor_node(state: AgentState):
             return {"next": "Final", **updates}
         return {"next": "Researcher", **updates}
 
-    if mode == "top_then_loan":
+    if mode == "omni_mode":
+        # 1. Quant
         if not (has_customer and has_count):
             if quant_attempts >= 2:
-                return {"next": "Final", **updates}
-            return {"next": "Quant", **updates}
+                # If quant fails, we might still want other parts, but let's assume chain depends on it
+                pass 
+            else:
+                return {"next": "Quant", **updates}
 
-        if has_income or has_doc:
-            return {"next": "Final", **updates}
+        # 2. Researcher
+        if not (has_income or has_doc):
+            if research_attempts >= 2:
+                pass
+            else:
+                return {"next": "Researcher", **updates}
 
-        if research_attempts >= 2:
-            return {"next": "Final", **updates}
-        return {"next": "Researcher", **updates}
+        # 3. Market
+        if not (has_market or market_attempts >= 1):
+             return {"next": "Market", **updates}
+
+        # 4. Sentiment
+        if not (has_sentiment or sentiment_attempts >= 1):
+             return {"next": "Sentiment", **updates}
+
+        return {"next": "Final", **updates}
 
     return {"next": "Final", **updates}
 
 
 def quant_node(state: AgentState):
+    from langchain_core.messages import AIMessage
     tool_call_id = str(uuid.uuid4())
     msg = AIMessage(
         content="",
@@ -418,6 +435,7 @@ def quant_node(state: AgentState):
 
 
 def researcher_node(state: AgentState):
+    from langchain_core.messages import AIMessage
     customer_id = state.get("customer_id") or ""
     doc_query = state.get("doc_query") or "income source"
 
@@ -439,6 +457,7 @@ def researcher_node(state: AgentState):
 
 
 def market_node(state: AgentState):
+    from langchain_core.messages import AIMessage
     ticker = state.get("ticker") or ""
     tool_call_id = str(uuid.uuid4())
     msg = AIMessage(
@@ -455,6 +474,7 @@ def market_node(state: AgentState):
 
 
 def sentiment_node(state: AgentState):
+    from langchain_core.messages import AIMessage
     user_text = _get_last_user_text(state)
     tool_call_id = str(uuid.uuid4())
     msg = AIMessage(
@@ -513,6 +533,7 @@ def extractor_node(state: AgentState):
 
 
 def final_template_node(state: AgentState):
+    from langchain_core.messages import AIMessage
     mode = state.get("mode") or "unknown"
 
     customer_id = state.get("customer_id")
@@ -548,6 +569,9 @@ def final_template_node(state: AgentState):
         else:
             line += "."
         return {"messages": [AIMessage(content=line)]}
+    
+    if mode == "final_answer":
+        return {"messages": [AIMessage(content=f"Final Answer: {state.get('last_user_text')}") ]}
 
     if mode in ["loan_query", "top_then_loan"]:
         if not customer_id:
@@ -571,6 +595,7 @@ def final_template_node(state: AgentState):
 
 
 def make_final_node(llm: Any) -> Callable[[AgentState], Any]:
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     async def final_node(state: AgentState):
         if not llm:
             return final_template_node(state)
@@ -631,7 +656,7 @@ def _should_continue(state: AgentState):
 @dataclass
 class GraphRuntime:
     graph: Any
-    _client: MultiServerMCPClient
+    _client: Any
     _session_ctx: Any
     llm: Any = None
     llm_name: Optional[str] = None
@@ -678,6 +703,11 @@ class GraphRuntime:
 
     @classmethod
     async def create(cls) -> "GraphRuntime":
+        from langgraph.graph import StateGraph, START, END
+        from langgraph.prebuilt import ToolNode
+        from langchain_mcp_adapters.client import MultiServerMCPClient
+        from langchain_mcp_adapters.tools import load_mcp_tools
+
         project_root = cls._project_root()
         tools_path = cls._tools_server_path()
 
@@ -744,5 +774,12 @@ class GraphRuntime:
 
     async def aclose(self) -> None:
         if self._session_ctx:
-            await self._session_ctx.__aexit__(None, None, None)
-            self._session_ctx = None
+            try:
+                # Use a timeout for closing to prevent hanging on shutdown
+                import anyio
+                async with anyio.fail_after(5):
+                    await self._session_ctx.__aexit__(None, None, None)
+            except Exception as e:
+                logger.debug("Error during MCP session cleanup (expected in some async environments): %s", e)
+            finally:
+                self._session_ctx = None
