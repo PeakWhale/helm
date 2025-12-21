@@ -125,21 +125,27 @@ Sentiment:
 Sentiment: Credit risk rising as delinquencies accelerate, guidance lowered, costs up.
 ```
 
-Full multi step:
+Omni-Mode (Full "Grand Slam" Analysis):
 
 ```text
-Find the customer with the most Gambling High Risk transactions, then check their loan application for income source.
+Find the top high risk customer, check their loan application for income source, get the stock price for $AAPL, and analyze sentiment for 'The tech sector is showing strong resilience'.
 ```
+
+This single prompt triggers all four agents in sequence:
+1. **Quant**: Identifies the customer with high-risk gambling transactions.
+2. **Researcher**: Looks up their specific loan PDF to find income sources.
+3. **Market**: Checks live ticker prices.
+4. **Sentiment**: Analyzes the provided text using FinBERT.
 
 ## Repository Structure
 
 ```text
 helm/
   app.py
-  main.py
   src/
     graph.py
     tools.py
+    sentiment_runner.py
     seed_data.py
     generate_docs.py
   scripts/
