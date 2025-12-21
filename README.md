@@ -1,264 +1,120 @@
 # PeakWhale™ Helm
-
-### Helm: MCP Enabled RAG Engine for Agent to Agent Context
+### Enterprise Financial Intelligence & Multi-Agent Orchestration
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
-![Chainlit](https://img.shields.io/badge/Chainlit-Chat%20UI-informational)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Orchestration-9cf)
-![MCP](https://img.shields.io/badge/MCP-Tool%20Protocol-informational)
-![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-lightgrey)
-![DuckDB](https://img.shields.io/badge/DuckDB-Local%20Analytics%20DB-yellow)
-![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-success)
-![SentenceTransformers](https://img.shields.io/badge/SentenceTransformers-Embeddings-9cf)
+![MCP](https://img.shields.io/badge/MCP-Protocol-informational)
+![Ollama](https://img.shields.io/badge/Local%20LLM-Ollama-lightgrey)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
-PeakWhale™ Helm is a local first, multi agent financial intelligence system that combines structured financial data and unstructured documents to produce grounded, explainable answers in a clean, auditable workflow.
+**PeakWhale™ Helm** is a local-first, agentic financial intelligence system designed to demonstrate the future of enterprise automation. It combines structured financial data (SQL ledgers) with unstructured evidence (loan documents) to produce grounded, explainable insights.
 
-It uses MCP (Model Context Protocol) to expose tools in a consistent way, and can optionally use a local LLM (Large Language Model) via Ollama to synthesize a clear final answer from tool outputs while staying grounded.
+By leveraging the **Model Context Protocol (MCP)** and **LangGraph** orchestration, Helm enables four specialized agents to collaborate seamlessly, executing complex research tasks that previously required human analysis.
+
+---
+
+> [!NOTE]
+> **Synthetic Data Only**: All customer names, transaction values, and documents in this repository are randomly generated for demonstration purposes.
+
+## The Enterprise Challenge
+
+In modern banking, critical risk signals are fragmented:
+* **Transaction Red Flags** live in core banking databases (SQL).
+* **Income Evidence** lives in unstructured documents (PDFs).
+* **Market Context** lives in external feeds.
+
+Human analysts must manually connect these dots, leading to slow decisions and audit gaps. **Helm** automates this end-to-end workflow locally, ensuring privacy and reproducibility.
 
 ![PeakWhale™ Helm Architecture](docs/architecture.png)
 
-## Enterprise Business Problem
+## Core Capabilities
 
-In real enterprises, critical signals are fragmented across systems.
+### 1. Multi-Agent Collaboration ("Omni-Mode")
+Helm's primary innovation is its ability to decompose a complex natural language request into a deterministic execution plan. 
 
-* Transaction data lives in databases and ledgers
-* Supporting evidence lives in documents like loan applications, policy forms, emails, and PDFs (Portable Document Format)
-* Teams manually connect the dots, which slows decisions, increases cost, and makes outcomes harder to reproduce and audit
-
-PeakWhale™ Helm shows how an agentic architecture can automate this end to end workflow locally, while keeping tool usage visible.
-
-## Important Notice
-
-All data in this repository is 100 percent synthetic.
-
-Customer names, transaction values, merchants, and PDFs are randomly generated for demonstration purposes only.
-
-## What PeakWhale™ Helm Does
-
-You can ask a question like:
-
-```text
-Find the customer with the most Gambling High Risk transactions, then check their loan application for income source.
-```
-
-Behind the scenes, multiple agents collaborate to:
-
-1. Query a financial ledger using SQL (Structured Query Language)
-2. Search loan application PDFs using embeddings and vector search
-3. Fetch basic market prices without API keys for demo prompts
-4. Run sentiment analysis on financial text
-5. Merge results into a single grounded answer, with tool calls and tool results shown in the UI (User Interface)
-
-## System Architecture
-
-PeakWhale™ Helm follows a supervisor style orchestration pattern using LangGraph.
-
-High level flow:
-
-1. User sends a message in the Chainlit chat UI (User Interface)
-2. Orchestration layer (Supervisor) performs intent routing and control
-3. One of four specialized agents triggers tools using MCP (Model Context Protocol)
-4. Tools run against local and external demo sources and return structured results
-5. Results are normalized into shared state and returned as a single response
-6. Optional Ollama LLM (Large Language Model) synthesizes the final answer from tool outputs only, with guardrails to prevent hallucinated facts
-
-Core components:
-
-* Chainlit chat UI with tool call visibility
-* Orchestration layer using LangGraph StateGraph
-* MCP tool layer using FastMCP and LangChain MCP adapters
-* Optional local generation via Ollama for better final response quality
-
-Four agents:
-
-* Quant Agent
-  Queries DuckDB ledger with SQL (Structured Query Language)
-  Example tool: `query_ledger`
-
-* Researcher Agent
-  Searches loan PDFs using RAG (Retrieval Augmented Generation)
-  Embeddings via SentenceTransformers and a FAISS (Facebook AI Similarity Search) vector store
-  Example tool: `search_loan_documents`
-
-* Market Agent
-  Fetches basic daily close prices with a free source (Stooq) and no API key
-  Optional fallback to yfinance if it works on your network
-  Example tool: `get_stock_price`
-
-* Sentiment Agent
-  Runs FinBERT sentiment classification for financial text
-  Example tool: `analyze_sentiment`
-
-Local data sources:
-
-* DuckDB ledger at `data/ledger.duckdb`
-* PDF vault at `data/vault/`
-
-## Prompts To Try
-
-Quant:
-
-```text
-Find the customer with the most Gambling High Risk transactions.
-```
-
-Researcher:
-
-```text
-Researcher: for customer 2631d00b, find the income source in the loan application.
-```
-
-Market:
-
-```text
-Get stock price for $AAPL
-```
-
-```text
-Get the latest stock price for TSLA.
-```
-
-Sentiment:
-
-```text
-Sentiment: Credit risk rising as delinquencies accelerate, guidance lowered, costs up.
-```
-
-Omni-Mode (Full "Grand Slam" Analysis):
-
+**Try the "Grand Slam" Prompt:**
 ```text
 Find the top high risk customer, check their loan application for income source, get the stock price for $AAPL, and analyze sentiment for 'The tech sector is showing strong resilience'.
 ```
 
-This single prompt triggers all four agents in sequence:
-1. **Quant**: Identifies the customer with high-risk gambling transactions.
-2. **Researcher**: Looks up their specific loan PDF to find income sources.
-3. **Market**: Checks live ticker prices.
-4. **Sentiment**: Analyzes the provided text using FinBERT.
+**What happens behind the scenes:**
+1.  **Quant Agent**: Queries the DuckDB ledger to identify the highest-risk customer (`2631d00b`) with gambling activity.
+2.  **Research Agent**: Retrieves the specific loan application PDF for that customer and extracts income details using RAG.
+3.  **Market Agent**: Fetches real-time equity pricing for `$AAPL`.
+4.  **Sentiment Agent**: Runs a local FinBERT model to score the provided market commentary.
+
+The system then synthesizes these distinct data points into a single, cohesive research report.
+
+### 2. Specialized Autonomous Agents
+
+| Agent | Function | Technology |
+| :--- | :--- | :--- |
+| **Quant** | Forensic accounting & ledger analysis | **DuckDB** + SQL Generation |
+| **Researcher** | Document intelligence & fact-checking | **SentenceTransformers** + **FAISS** (RAG) |
+| **Market** | Real-time equity & asset pricing | **Stooq** / **yfinance** |
+| **Sentiment** | Financial news tone analysis | **FinBERT** (Transformer) |
+
+## System Architecture
+
+Helm follows a **Supervisor-Worker** orchestration pattern:
+1.  **Orchestration**: The Supervisor analyzes user intent and routes tasks to the appropriate worker agents.
+2.  **Execution**: Agents execute tools via MCP, ensuring strict separation of concerns.
+3.  **Synthesis**: Results are aggregated into a shared state object.
+4.  **Generation**: An optional local LLM (Ollama) generates the final natural language response based *only* on the verified tool outputs.
+
+## Quick Start
+
+### Prerequisites
+*   **Python 3.11+**
+*   **uv** (recommended for ultra-fast dependency management)
+*   *(Optional)* **Ollama** running `llama3.2` for full synthesized responses.
+
+### Installation
+
+```bash
+# 1. Install dependencies
+uv sync
+
+# 2. Generate synthetic enterprise data
+uv run python scripts/demo_reset.py
+
+# 3. Launch the Agent UI
+uv run chainlit run app.py -w
+```
+Access the dashboard at `http://localhost:8000`.
 
 ## Repository Structure
 
 ```text
 helm/
-  app.py
-  src/
-    graph.py
-    tools.py
-    sentiment_runner.py
-    seed_data.py
-    generate_docs.py
-  scripts/
-    demo_reset.py
-  data/
-    ledger.duckdb
-    vault/
-      .gitkeep
-  docs/
-    architecture.png
-  chainlit.md
-  README.md
-  LICENSE
-  pyproject.toml
-  uv.lock
+├── app.py                  # Chainlit UI entry point
+├── src/
+│   ├── graph.py            # LangGraph orchestration logic
+│   ├── tools.py            # MCP Tool definitions
+│   ├── sentiment_runner.py # Persistent inference server (FinBERT)
+│   └── seed_data.py        # Synthetic data generator
+├── data/
+│   ├── ledger.duckdb       # Local SQL database
+│   └── vault/              # Encrypted document store (PDFs)
+└── README.md
 ```
-
-## Quick Start
-
-### Prerequisites
-
-* Python 3.11 or newer
-* uv installed (Python dependency and environment manager)
-* Optional: Ollama installed and running for local LLM (Large Language Model) synthesis
-* Optional: DuckDB CLI if you want to browse the database manually
-
-### Install dependencies
-
-```bash
-uv sync
-```
-
-### Reset demo data
-
-If your Makefile includes a demo target:
-
-```bash
-make demo
-```
-
-Or run the script directly:
-
-```bash
-uv run python scripts/demo_reset.py
-```
-
-This regenerates:
-
-* A synthetic DuckDB ledger
-* Synthetic loan application PDFs
-
-### Run the app
-
-```bash
-uv run chainlit run app.py -w
-```
-
-Then open:
-
-```text
-http://localhost:8000
-```
-
-## View Data Manually
-
-### View the DuckDB database
-
-```bash
-duckdb data/ledger.duckdb
-```
-
-Useful queries:
-
-```sql
-SHOW TABLES;
-SELECT * FROM customers LIMIT 10;
-SELECT * FROM transactions LIMIT 10;
-SELECT * FROM transactions WHERE category = 'Gambling/High Risk' LIMIT 25;
-```
-
-### View the PDFs
-
-Open:
-
-```text
-data/vault/
-```
-
-Then open any generated PDF.
 
 ## Why This Project Exists
 
-PeakWhale™ Helm demonstrates enterprise style Generative AI architecture patterns:
+PeakWhale™ Helm demonstrates production-grade Generative AI patterns for regulated industries:
+*   **Deterministic Tool Usage**: Every data point is traceable to a specific tool call.
+*   **Privacy-First Architecture**: Runs 100% locally with no data egress.
+*   **Standardized Context**: Uses MCP to decouple agents from the orchestration layer.
 
-* Agent orchestration and routing
-* Deterministic tool usage with visible traces in the UI
-* Retrieval grounded answers across structured and unstructured sources
-* MCP (Model Context Protocol) tool standardization for cleaner agent to agent context sharing
-* Optional local LLM synthesis via Ollama, constrained to tool outputs for auditability
-* Local first operation for privacy and reproducibility
+---
 
 ## Part of the PeakWhale™ Ecosystem
-
-* PeakWhale™ Orca, real time fraud detection
-* PeakWhale™ Harbor, valuation and forecasting
-* PeakWhale™ Sonar, automated threat detection
-* PeakWhale™ Delta, decision support systems
+*   **PeakWhale™ Orca**: Real-time fraud detection.
+*   **PeakWhale™ Harbor**: Valuation and forecasting.
+*   **PeakWhale™ Sonar**: Automated threat detection.
 
 ## License
-
-MIT License
-© 2025 PeakWhale™
+MIT License © 2025 PeakWhale™
 
 ## Author
-
 Built by Addy
