@@ -1,3 +1,5 @@
+<p><img src="helm.svg" width="64" height="64" alt="Helm logo"></p>
+
 # PeakWhale™ Helm
 ### Enterprise Financial Intelligence & Multi-Agent Orchestration
 
