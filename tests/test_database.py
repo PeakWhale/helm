@@ -264,3 +264,23 @@ def test_dynamic_pivot_still_works(demo_db):
     result = demo_db.query("SELECT * FROM (PIVOT (SELECT segment FROM customers) ON segment USING COUNT(*))")
     assert len(result.rows) == 1 and sum(result.rows[0]) == 100
 
+
+def test_postgres_password_is_not_shown_in_errors(monkeypatch):
+    dsn = "postgresql://bob:S3cretPW@127.0.0.1:5999/shop"
+
+    class FakeConnection:
+        def execute(self, sql, params=None):
+            if sql.startswith("ATTACH"):
+                raise duckdb.IOException(f"Unable to connect to Postgres at {dsn}: password=S3cretPW refused")
+            return self
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(duckdb, "connect", lambda *a, **k: FakeConnection())
+    db = Database("postgres", dsn)
+    with pytest.raises(DatabaseError) as info:
+        db.list_tables()
+    message = str(info.value)
+    assert "S3cretPW" not in message
+    assert "postgresql://bob:***@127.0.0.1:5999/shop" in message

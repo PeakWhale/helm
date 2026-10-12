@@ -4,7 +4,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from peakwhale_helm.config import ConfigError, describe_settings, detect_db_kind, load_settings
+from peakwhale_helm.config import ConfigError, describe_settings, detect_db_kind, load_settings, redact_url
 from peakwhale_helm.demo import DEMO_SAVED_QUERIES
 
 REPO = Path(__file__).resolve().parents[1]
@@ -135,3 +135,10 @@ def test_password_is_hidden_in_summary(tmp_path, monkeypatch):
     s = load_settings(env={"HELM_DB": "postgresql://me:secret@host:5432/db"})
     text = describe_settings(s)
     assert "secret" not in text and "me:***@host:5432/db" in text
+
+
+def test_password_is_hidden_in_other_connection_strings():
+    assert redact_url("host=db user=me password=secret dbname=shop") == "host=db user=me password=*** dbname=shop"
+    assert redact_url("postgresql://me@host/db?password=secret&sslmode=require") == (
+        "postgresql://me:***@host/db?password=***&sslmode=require"
+    )

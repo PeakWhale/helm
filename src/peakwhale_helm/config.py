@@ -14,6 +14,7 @@ current working directory.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -340,10 +341,16 @@ def describe_settings(settings: Settings) -> str:
 
 
 def redact_url(target: str) -> str:
-    """Hide a password inside a database URL."""
-    if "://" in target and "@" in target:
-        scheme, rest = target.split("://", 1)
+    """Hide a password inside a database URL (or a key=value connection string)."""
+    text = str(target)
+    if "://" in text and "@" in text:
+        scheme, rest = text.split("://", 1)
         creds, host = rest.rsplit("@", 1)
         user = creds.split(":", 1)[0]
-        return f"{scheme}://{user}:***@{host}"
-    return target
+        text = f"{scheme}://{user}:***@{host}"
+    return redact_password_fields(text)
+
+
+def redact_password_fields(text: str) -> str:
+    """Hide the value of password=... in any text, such as an error message."""
+    return re.sub(r"(?i)(password\s*=\s*)('[^']*'|[^\s&;]+)", r"\1***", str(text))

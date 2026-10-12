@@ -28,9 +28,10 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Sequence
+from urllib.parse import unquote, urlsplit
 from urllib.request import pathname2url
 
-from .config import FILE_TABLE_SUFFIXES, Settings
+from .config import FILE_TABLE_SUFFIXES, Settings, redact_password_fields, redact_url
 from .formatting import markdown_table
 from .sql_guard import SQLGuardError, check_sql, limit_rows
 
@@ -108,6 +109,23 @@ class Database:
         self._shared_signature: Any = None
         self._tmp: tempfile.TemporaryDirectory | None = None
 
+    @property
+    def display_target(self) -> str:
+        """The target without a password, safe to show to users and models."""
+        return redact_url(self.target)
+
+    def _clean(self, text: str) -> str:
+        """Remove the database password from an error message."""
+        if self.kind != "postgres":
+            return text
+        text = text.replace(self.target, self.display_target)
+        with contextlib.suppress(ValueError):
+            password = urlsplit(self.target).password
+            for secret in {password, unquote(password or "")}:
+                if secret:
+                    text = text.replace(secret, "***")
+        return redact_password_fields(text)
+
     def _temp_directory(self) -> str:
         # DuckDB may read and write its temp folder. Use a private, empty one, so that
         # folder cannot be used to read other files (the default is ./.tmp or <db>.tmp).
@@ -127,7 +145,7 @@ class Database:
 
     def _missing(self) -> DatabaseError:
         return DatabaseError(
-            f"Database not found: {self.target}. Run `uv run helm-demo` to create the demo data, "
+            f"Database not found: {self.display_target}. Run `uv run helm-demo` to create the demo data, "
             "or point HELM_DB (or helm.toml) at your own database."
         )
 
@@ -215,7 +233,9 @@ class Database:
             con.execute("SET lock_configuration = true")
         except duckdb.Error as exc:
             con.close()
-            raise DatabaseError(f"Could not load {self.kind} source {self.target}: {exc}") from None
+            raise DatabaseError(
+                f"Could not load {self.kind} source {self.display_target}: {self._clean(str(exc))}"
+            ) from None
         self._shared, self._shared_signature = con, signature
         return con
 
@@ -284,6 +304,7 @@ class Database:
                     "Add filters or aggregates to make it faster."
                 ) from None
             message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+            message = self._clean(message)
             if self.kind == "sqlite" and "not authorized" in message:
                 message += " (only reading data is allowed)"
             raise DatabaseError(f"SQL error: {message}") from None
@@ -305,7 +326,7 @@ class Database:
             statements = con.extract_statements(sql)
         except duckdb.Error as exc:
             message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
-            raise DatabaseError(f"SQL error: {message}") from None
+            raise DatabaseError(f"SQL error: {self._clean(message)}") from None
         # PIVOT without an IN list makes DuckDB add its own CREATE TYPE step, with no text.
         own = [s for s in statements if s.type != duckdb.StatementType.CREATE or s.query.strip()]
         if len(own) != 1 or own[0].type != duckdb.StatementType.SELECT:
