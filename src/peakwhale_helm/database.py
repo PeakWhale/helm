@@ -129,9 +129,10 @@ class Database:
     def _temp_directory(self) -> str:
         # DuckDB may read and write its temp folder. Use a private, empty one, so that
         # folder cannot be used to read other files (the default is ./.tmp or <db>.tmp).
-        if self._tmp is None:
-            self._tmp = tempfile.TemporaryDirectory(prefix="helm-duckdb-", ignore_cleanup_errors=True)
-        return self._tmp.name
+        with self._lock:  # one folder per Database, also when threads connect at the same time
+            if self._tmp is None:
+                self._tmp = tempfile.TemporaryDirectory(prefix="helm-duckdb-", ignore_cleanup_errors=True)
+            return self._tmp.name
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "Database":
