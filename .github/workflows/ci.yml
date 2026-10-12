@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Core + agent extra only: no torch, no Chainlit, no model downloads.
+      - name: Install
+        run: uv sync --locked --extra agent
+
+      - name: Tests (offline, no LLM)
+        run: uv run pytest -q
+
+      - name: Demo evals (rule-based fallback)
+        run: uv run helm-eval --fresh-demo
+
+      - name: MCP server check on the demo data
+        run: |
+          uv run helm-demo
+          uv run helm-mcp --check

@@ -1,19 +1,26 @@
-.PHONY: demo ui seed docs reset
+.PHONY: install demo ui mcp check ask eval test reset
+
+install:
+	uv sync --extra ui
 
 demo:
-	uv run python scripts/demo_reset.py
+	uv run helm-demo
 
 ui:
 	uv run chainlit run app.py -w
 
-seed:
-	uv run python src/seed_data.py
+mcp:
+	uv run helm-mcp
 
-docs:
-	uv run python src/generate_docs.py
+check:
+	uv run helm-mcp --check
+
+eval:
+	uv run helm-eval --fresh-demo
+
+test:
+	uv run pytest -q
 
 reset:
-	rm -f data/ledger.duckdb
-	rm -f data/vault/*_loan_app.pdf
-	rm -rf .chainlit __pycache__ src/__pycache__
-	mkdir -p data/vault
+	rm -f data/ledger.duckdb data/vault/*_loan_app.pdf data/vault/credit_policy.md
+	rm -rf .chainlit
