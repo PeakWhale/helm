@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> None:
 
     assistant = make_assistant(settings, use_llm=not args.no_llm)
     if assistant.mode == "fallback" and assistant.llm_problem and not args.no_llm:
-        print(f"note: {assistant.llm_problem} Using the rule-based fallback.", file=sys.stderr)
+        print(f"note: no LLM, using the rule-based fallback. Reason: {assistant.llm_problem}", file=sys.stderr)
     print(asyncio.run(_run(assistant, " ".join(args.question), args.verbose)))
 
 

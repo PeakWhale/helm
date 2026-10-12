@@ -106,6 +106,13 @@ def test_timeout_stops_long_queries(demo_dir):
         db.query(slow)
 
 
+def test_sqlite_timeout_stops_long_queries(sqlite_db):
+    slow = Database("sqlite", sqlite_db.target, timeout=0.2)
+    endless = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT COUNT(*) FROM n"
+    with pytest.raises(DatabaseError, match="time limit"):
+        slow.query(endless)
+
+
 def test_sqlite_file(sqlite_db):
     tables = {t.name: t for t in sqlite_db.list_tables()}
     assert tables["orders"].rows == 30 and tables["big_orders"].kind == "view"

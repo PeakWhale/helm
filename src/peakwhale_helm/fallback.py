@@ -169,8 +169,9 @@ class FallbackPlanner:
         run.sources.append(source)
         return source
 
-    async def _tables(self, run: "_Run") -> list[str]:
-        if run.tables is None:
+    async def _tables(self, run: "_Run", force: bool = False) -> list[str]:
+        """Table names from list_tables (called once per question)."""
+        if run.tables is None or force:
             source = await self._call(run, "list_tables", {})
             columns, rows = parse_markdown_table(source.output) if not source.error else ([], [])
             run.tables = [r[0] for r in rows] if columns and columns[0] == "table" else []
@@ -267,9 +268,8 @@ class FallbackPlanner:
             elif part.kind == "stock":
                 await self._do_stock(run, part)
             elif part.kind == "tables":
-                source = await self._call(run, "list_tables", {})
-                run.tables = None
-                self._say_tables(run, source)
+                await self._tables(run, force=True)
+                self._say_tables(run, run.sources[-1])
             elif part.kind == "documents":
                 source = await self._call(run, "list_documents", {})
                 self._say_plain(run, source, "Documents")

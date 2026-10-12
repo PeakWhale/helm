@@ -1,14 +1,9 @@
-# Welcome to Chainlit! 🚀🤖
+# PeakWhale Helm
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+Ask questions about your database and your documents. Helm picks the tools, runs them, and shows every step.
 
-## Useful Links 🔗
+- Numbers come from **read-only SQL** on the connected database.
+- Text comes from **document search** (PDF, Markdown, TXT).
+- Every answer ends with **Sources**: the SQL and row count, or the file and chunk.
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
-
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
-
-## Welcome screen
-
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+The demo data is synthetic. See the README to connect your own data.

@@ -43,6 +43,7 @@ def build_server(settings: Settings | None = None, toolbox: Toolbox | None = Non
 
     tb = toolbox or Toolbox(settings or load_settings())
     server = FastMCP("PeakWhale Helm", instructions=INSTRUCTIONS)
+    server._mcp_server.version = __version__  # FastMCP has no public setting for this yet
     local = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
     online = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True)
 

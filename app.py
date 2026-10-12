@@ -49,7 +49,7 @@ async def start() -> None:
     if chat.model is not None:
         planner = f"LLM planner: **{chat.label}**"
     else:
-        planner = f"LLM planner: off. {chat.problem} Helm uses the rule-based fallback for now."
+        planner = f"LLM planner: off, using the rule-based fallback. Reason: {chat.problem}"
     docs = settings.docs_dir.name if settings.docs_dir else "none"
     questions = DEMO_QUESTIONS if settings.saved_queries == DEMO_SAVED_QUERIES else GENERIC_QUESTIONS
     examples = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, start=1))

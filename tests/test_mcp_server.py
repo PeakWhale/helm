@@ -9,6 +9,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from peakwhale_helm import __version__
 from peakwhale_helm.mcp_server import build_server, run_check
 from peakwhale_helm.toolbox import Toolbox
 
@@ -98,6 +99,7 @@ def test_stdio_handshake_with_the_real_entry_point(demo_dir, tmp_path):
             async with ClientSession(read, write) as session:
                 init = await session.initialize()
                 assert init.serverInfo.name == "PeakWhale Helm"
+                assert init.serverInfo.version == __version__
                 assert "read-only" in (init.instructions or "")
                 names = {t.name for t in (await session.list_tools()).tools}
                 assert names == CORE

@@ -13,6 +13,7 @@ from typing import Any, AsyncIterator
 
 from .config import Settings
 from .fallback import FallbackPlanner
+from .formatting import parse_markdown_table
 from .sources import Event, Source, cited_ids, format_sources, unknown_citations
 from .toolset import ToolSet, content_to_text
 
@@ -56,7 +57,9 @@ class Assistant:
         """Run a question to the end and return (answer, sources)."""
         text, sources = "", []
         async for event in self.ask(question, history):
-            if event.kind == "tool_result" and event.source is not None:
+            if event.kind == "note":  # the LLM failed; the fallback starts over
+                sources = []
+            elif event.kind == "tool_result" and event.source is not None:
                 sources.append(event.source)
             elif event.kind == "answer":
                 text = event.text
@@ -88,8 +91,6 @@ class Assistant:
         except Exception as exc:
             return f"(could not list tables: {exc})"
         parts = [listing]
-        from .formatting import parse_markdown_table
-
         columns, rows = parse_markdown_table(listing)
         names = [r[0] for r in rows] if columns and columns[0] == "table" else []
         for name in names[:MAX_SCHEMA_TABLES]:
@@ -106,22 +107,21 @@ class Assistant:
         self._schema = text
         return text
 
-    async def _graph_and_prompt(self) -> tuple[Any, str]:
+    async def _agent_graph(self) -> Any:
         from .agent import SYSTEM_PROMPT, build_agent_graph
 
-        schema = await self.schema_overview()
-        dialect = "sqlite" if self.settings.db_kind == "sqlite" else "duckdb"
-        prompt = SYSTEM_PROMPT.format(dialect=dialect, schema=schema)
         if self._graph is None:
+            dialect = "sqlite" if self.settings.db_kind == "sqlite" else "duckdb"
+            prompt = SYSTEM_PROMPT.format(dialect=dialect, schema=await self.schema_overview())
             self._graph = build_agent_graph(self.llm, self.toolset, prompt, self.settings.llm.max_steps)
-        return self._graph, prompt
+        return self._graph
 
     async def _ask_llm(self, question: str, history: list[tuple[str, str]] | None) -> AsyncIterator[Event]:
         from langchain_core.messages import HumanMessage
 
         from .agent import history_messages
 
-        graph, _prompt = await self._graph_and_prompt()
+        graph = await self._agent_graph()
         inputs = {"messages": [*history_messages(history), HumanMessage(content=question)], "sources": [], "rounds": 0}
         config = {"recursion_limit": 2 * self.settings.llm.max_steps + 6}
         final_text = ""
