@@ -33,10 +33,31 @@ FOOTER = (
     "It only understands simple questions; connect an LLM for open questions._"
 )
 
+# Raw SQL: a query, or a write or admin statement (which the guard then blocks with a
+# clear message). A question that only starts with such a word, like "Create a summary
+# of the credit policy" or "Update me on ...", is not SQL.
 SQL_START = re.compile(
-    r"^\s*\(?\s*(select|with|insert|update|delete|drop|create|alter|attach|detach|copy|install|load|"
-    r"pragma|set|call|export|import|truncate|merge|vacuum|grant|revoke)\b",
-    re.IGNORECASE,
+    r"""^\s*\(?\s*(?:
+        select\b
+      | with\s+(?:recursive\s+)?[\w"]+(?:\s*\([^)]*\))?\s+as\b
+      | (?:drop|create(?:\s+or\s+replace)?(?:\s+(?:temp|temporary|unique|persistent))?)\s+
+        (?:table|view|schema|index|database|sequence|macro|function|type|secret)\b
+      | alter\s+(?:table|view|schema|database|sequence)\b
+      | delete\s+from\b
+      | insert\s+(?:or\s+\w+\s+)?into\b
+      | update\s+[\w".]+\s+set\b
+      | merge\s+into\b
+      | copy\s+(?:\(|[\w".]+\s+(?:from|to)\b)
+      | (?:attach|detach)\s+(?:database\s+)?(?:if\s+(?:not\s+)?exists\s+)?['"\w./:-]+\s*(?:as\b|\(|;|$)
+      | (?:install|load|truncate|vacuum|reset)\s+(?:table\s+)?['"\w.-]+\s*;?\s*$
+      | (?:checkpoint|vacuum)\s*;?\s*$
+      | pragma\s+\w+
+      | set\s+(?:session\s+|global\s+|local\s+)?[\w.]+\s*(?:=|to\b)
+      | call\s+\w+\s*\(
+      | (?:export|import)\s+database\b
+      | (?:grant|revoke)\s+[\w\s,]+?\s+on\b
+    )""",
+    re.IGNORECASE | re.VERBOSE,
 )
 _VERBS = (
     r"check|get|find|show|analy[sz]e|list|tell|give|fetch|look|search|describe|count|pull|read|"

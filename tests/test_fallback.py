@@ -129,3 +129,12 @@ def test_ids_that_are_not_file_names_stay_search_words(tmp_path, monkeypatch):
     answer, _ = ask(settings, "What does the letter say about customer zz9999?")
     assert "No document passage mentions zz9999" in answer
 
+
+def test_only_real_sql_is_run_as_sql(demo_settings):
+    answer, sources = ask(demo_settings, "Create a summary of the credit policy")
+    assert [s.tool for s in sources] == ["search_documents"] and "Blocked" not in answer
+    answer, sources = ask(demo_settings, "Update me on the loan application of 2631d00b")
+    assert [s.tool for s in sources] == ["search_documents"]
+    for sql in ("DROP TABLE customers", "DELETE FROM customers", "INSTALL httpfs", "SET threads = 1"):
+        answer, sources = ask(demo_settings, sql)
+        assert [s.tool for s in sources] == ["query"] and "Blocked" in answer, sql
