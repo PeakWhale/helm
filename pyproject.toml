@@ -9,7 +9,7 @@ keywords = ["mcp", "duckdb", "rag", "langgraph", "ollama", "research-assistant"]
 dependencies = [
     "duckdb>=1.4.3",
     "mcp>=1.24.0",
-    "pypdf>=6.4.2",
+    "pypdf>=6.19.0",
     # DuckDB needs pytz to return TIMESTAMPTZ values (and now()) to Python.
     "pytz>=2024.1",
     "reportlab>=4.4.6",
@@ -24,10 +24,11 @@ agent = [
     "langchain-openai>=1.1.5",
     "langchain-mcp-adapters>=0.2.1",
 ]
-# Chainlit chat UI (includes the agent)
+# Chainlit chat UI (includes the agent). Chainlit 2.10.1 fixes CVE-2026-22218,
+# CVE-2026-22219 and CVE-2026-56104.
 ui = [
     "peakwhale-helm[agent]",
-    "chainlit>=2.9.3",
+    "chainlit>=2.10.1",
 ]
 # Optional stock price fallback through yfinance
 market = [
