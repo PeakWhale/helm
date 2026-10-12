@@ -17,6 +17,13 @@ ALLOWED = [
     "SELECT replace(name, 'Demo ', '') FROM customers",
     "SELECT * FROM t WHERE x IN ('a', 'b')",
     "SELECT 'it''s fine' AS quote_inside",
+    "SELECT 'costs $5 or $$5' AS dollars_in_text",
+    'SELECT "a$b" FROM t',
+    "SELECT E'no backslash here' AS e_text",
+    "SELECT 'C:\\temp\\x' AS backslash_in_plain_text",
+    "SELECT * FROM main.customers",
+    "SELECT * FROM t JOIN u ON t.a = u.a, v",
+    "SELECT * FROM (DESCRIBE customers)",
 ]
 
 
@@ -78,6 +85,33 @@ BLOCKED = {
     "SELECT * FROM '/etc/passwd.csv'": "FROM '...'",
     "SELECT * FROM customers JOIN 'secret.parquet' USING (id)": "FROM '...'",
     "SELECT * FROM customers, 'secret.csv'": "FROM '...'",
+    "SELECT * FROM t JOIN u ON true, 'secret.csv'": "FROM '...'",
+    "SELECT * FROM ONLY 'secret.csv'": "FROM '...'",
+    "SELECT * FROM (SUMMARIZE 'secret.csv')": "FROM '...'",
+    "SELECT * FROM (PIVOT 'secret.csv' ON a USING sum(b))": "FROM '...'",
+    'SELECT * FROM "secret.csv"': "file name",
+    'SELECT * FROM ".tmp/leak.csv"': "file name",
+    "SELECT * FROM secret.csv": "file name",
+    'SELECT * FROM "secret".csv': "file name",
+    'SELECT * FROM main."secret.csv"': "file name",
+    "SELECT * FROM secret.csv.gz": "file name",
+    'SELECT * FROM t JOIN "/tmp/a.parquet" USING (id)': "file name",
+    'SELECT * FROM t, "C:\\data\\x"': "file name",
+    'SELECT * FROM (TABLE "secret.csv")': "file name",
+    'SELECT * FROM "https://example.com/data"': "file name",
+    # DuckDB reads $$...$$, $tag$...$tag$ and E'\'' as text. If the guard did not know,
+    # a ' inside them would make it treat real code as text (found in a review).
+    "SELECT $$'$$ AS a, (SELECT content FROM read_text('data/.env')) AS leaked, $$'$$ AS c": "$ sign",
+    "SELECT $$'$$ AS a) AS x; COPY (SELECT 1 AS id) TO 'sales.csv' (HEADER); "
+    "SELECT * FROM (SELECT $$'$$ AS b": "$ sign",
+    "SELECT $t$'$t$ AS q, x.* FROM query('SELECT 42') x --'": "$ sign",
+    "SELECT $$'$$ AS q, x.* FROM duckdb_secrets() x --'": "$ sign",
+    "SELECT 1 AS a$$'$$, x.* FROM read_csv('/etc/passwd') x --'": "$ sign",
+    "SELECT $1": "$ sign",
+    "SELECT E'\\'' AS a, (SELECT content FROM read_text('/etc/hostname')) AS b --'": "backslash",
+    "SELECT 1e'\\'' AS a, x.* FROM query('SELECT 42') x --'": "backslash",
+    # DuckDB ends a -- comment at \r too
+    "SELECT 1 --\r; DROP TABLE customers": "one statement",
     # broken input
     "": "empty",
     "   ;  ": "empty",
@@ -102,11 +136,29 @@ def test_column_named_like_a_keyword_can_be_quoted():
 
 def test_smart_quotes_are_made_plain():
     assert check_sql("SELECT * FROM t WHERE a = ‘x’") == "SELECT * FROM t WHERE a = 'x'"
+    # double smart quotes are name quotes, so a quoted column stays a column
+    assert check_sql("SELECT “category” FROM t") == 'SELECT "category" FROM t'
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT $$'$$ AS a, x.* FROM query('SELECT 42') x --'",
+        "SELECT E'\\'' AS a, x.* FROM query('SELECT 42') x --'",
+    ],
+)
+def test_blocked_tricks_really_run_in_duckdb(sql):
+    # Proof that these are real attacks, not just odd text: DuckDB itself runs them.
+    duckdb.connect().execute(sql).fetchall()
+    with pytest.raises(SQLGuardError):
+        check_sql(sql)
 
 
 def test_comments_are_removed_from_the_cleaned_sql():
     assert check_sql("SELECT 1 -- trailing note") == "SELECT 1"
     assert check_sql("SELECT /* c */ 1;") == "SELECT   1"
+    # a -- comment ends at \r as well, like in DuckDB
+    assert check_sql("SELECT 1 -- c\r, 2").split() == ["SELECT", "1", ",", "2"]
 
 
 def test_limit_rows_wraps_query_and_keeps_order():

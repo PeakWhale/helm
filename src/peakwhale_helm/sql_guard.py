@@ -7,8 +7,12 @@ before it reaches a database. The rules are simple on purpose:
 * it must start with ``SELECT`` or ``WITH``
 * no write or admin keywords anywhere (``DROP``, ``ATTACH``, ``COPY``, ``INSTALL`` ...)
 * no functions that read files, call the network or run other SQL
-  (``read_csv``, ``glob``, ``query`` ...), and no ``FROM 'some/file.csv'``
+  (``read_csv``, ``glob``, ``query`` ...), and no file names used as tables
+  (``FROM 'some/file.csv'``, ``FROM "file.csv"``, ``FROM file.csv``)
 * comments are removed before the checks, so they cannot hide a statement
+* text must use plain '...' quotes. ``$$...$$`` text, ``$1`` parameters and
+  backslash escapes in ``E'...'`` text are blocked, so the guard and the
+  database always agree on where a text value starts and ends
 
 The guard is one layer. The database connection itself is also opened read-only,
 and :func:`limit_rows` caps the number of rows that come back.
@@ -71,10 +75,23 @@ class _Token:
     start: int
 
 
-_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_LINE_END = re.compile(r"[\r\n]")
 _CLAUSE_WORDS = frozenset(
     {"SELECT", "FROM", "JOIN", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "ON", "USING",
      "WINDOW", "QUALIFY", "UNION", "EXCEPT", "INTERSECT", "VALUES", "OFFSET"}
+)
+# Words after which DuckDB reads a table name, and so also a file name or URL.
+_TABLE_INTRO = frozenset(
+    {"FROM", "JOIN", "TABLE", "ONLY", "LATERAL", "PIVOT", "PIVOT_WIDER", "UNPIVOT", "PIVOT_LONGER",
+     "SUMMARIZE", "DESCRIBE", "SHOW"}
+)
+# Clauses in which a comma starts another table: FROM a, b  or  JOIN b ON ..., c
+_FROM_CLAUSES = frozenset({"FROM", "JOIN", "ON", "USING"})
+_FILE_NAME = re.compile(
+    r"[/\\:]|\.(?:csv|tsv|txt|tbl|dat|parquet|json|jsonl|ndjson|xlsx?|arrow|ipc|feather|avro|orc|"
+    r"db|duckdb|sqlite3?|gz|zstd?|bz2|lz4|xz)$",
+    re.IGNORECASE,
 )
 
 
@@ -92,8 +109,9 @@ def _tokenize(sql: str) -> tuple[list[_Token], str]:
         ch = sql[i]
         nxt = sql[i + 1] if i + 1 < n else ""
         if ch == "-" and nxt == "-":
-            end = sql.find("\n", i)
-            end = n if end == -1 else end
+            # Like DuckDB and PostgreSQL, a -- comment ends at \n or \r.
+            line_end = _LINE_END.search(sql, i)
+            end = n if line_end is None else line_end.start()
             out.append(" ")
             i = end
             continue
@@ -116,10 +134,24 @@ def _tokenize(sql: str) -> tuple[list[_Token], str]:
                     continue
                 break
             text = sql[i : j + 1]
+            if ch == "'" and i > 0 and sql[i - 1] in "eE" and "\\" in text:
+                # In E'...' text a backslash can escape a quote, so the text could end
+                # somewhere else than this tokenizer thinks.
+                raise SQLGuardError(
+                    "Blocked: backslash escapes in E'...' text are not supported. "
+                    "Write a quote inside text as two quotes, like 'it''s'."
+                )
             tokens.append(_Token("string" if ch == "'" else "quoted", text, i))
             out.append(text)
             i = j + 1
             continue
+        if ch == "$":
+            # DuckDB reads $$...$$ and $tag$...$tag$ as text and $1 as a parameter.
+            # Allowing them would let '...' quotes hide inside, so they are blocked.
+            raise SQLGuardError(
+                "Blocked: the $ sign is only allowed inside '...' text or \"...\" names. "
+                "Use '...' for text; $$...$$ text and $1 parameters are not supported."
+            )
         if ch == ";":
             tokens.append(_Token("semicolon", ch, i))
             out.append(ch)
@@ -145,13 +177,29 @@ def _tokenize(sql: str) -> tuple[list[_Token], str]:
 
 
 def _normalize_quotes(sql: str) -> str:
-    # Chat apps often turn quotes into "smart" quotes. Make them plain again.
+    # Chat apps often turn quotes into "smart" quotes. Make them plain again:
+    # single ones are text quotes, double ones are name quotes.
     return (
         sql.replace("\u2018", "'")
         .replace("\u2019", "'")
-        .replace("\u201c", "'")
-        .replace("\u201d", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
     )
+
+
+def _table_name(tokens: list[_Token], index: int) -> str:
+    """The dotted name that starts at ``tokens[index]``, without quotes: a.b."c" -> a.b.c."""
+    parts = [tokens[index]]
+    k = index + 1
+    while (
+        k + 1 < len(tokens)
+        and tokens[k].kind == "other"
+        and tokens[k].text == "."
+        and tokens[k + 1].kind in ("word", "quoted")
+    ):
+        parts.append(tokens[k + 1])
+        k += 2
+    return ".".join(t.text[1:-1].replace('""', '"') if t.kind == "quoted" else t.text for t in parts)
 
 
 def check_sql(sql: str) -> str:
@@ -211,15 +259,20 @@ def check_sql(sql: str) -> str:
                     f"Blocked: the function {name}() can read files, reach other systems or run "
                     "other SQL. Query the tables listed by list_tables instead."
                 )
-        if token.kind == "string" and previous is not None:
-            used_as_table = (previous.kind == "word" and previous.text.upper() in ("FROM", "JOIN")) or (
-                previous.kind == "comma" and clause_stack[-1] in ("FROM", "JOIN")
+        used_as_table = previous is not None and (
+            (previous.kind == "word" and previous.text.upper() in _TABLE_INTRO)
+            or (previous.kind == "comma" and clause_stack[-1] in _FROM_CLAUSES)
+        )
+        if used_as_table and token.kind == "string":
+            raise SQLGuardError(
+                "Blocked: reading a file or URL with FROM '...' is not allowed. "
+                "Query the tables listed by list_tables instead."
             )
-            if used_as_table:
-                raise SQLGuardError(
-                    "Blocked: reading a file or URL with FROM '...' is not allowed. "
-                    "Query the tables listed by list_tables instead."
-                )
+        if used_as_table and token.kind in ("word", "quoted") and _FILE_NAME.search(_table_name(tokens, index)):
+            raise SQLGuardError(
+                f"Blocked: {_table_name(tokens, index)} looks like a file name or URL, and reading files "
+                "is not allowed. Query the tables listed by list_tables instead."
+            )
         previous = token
 
     return cleaned.strip()
