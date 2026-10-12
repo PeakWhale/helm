@@ -1,0 +1,77 @@
+{
+  "description": "Questions over the synthetic demo data (uv run helm-demo). 'expect': every item must appear in the answer (a list inside means: any one of these). 'tools': tools that must be used.",
+  "cases": [
+    {
+      "id": "top-risk-customer",
+      "question": "Which customer has the most Gambling/High Risk transactions?",
+      "expect": ["2631d00b", "8"],
+      "tools": ["query"]
+    },
+    {
+      "id": "risk-count-for-customer",
+      "question": "How many high risk transactions does customer f81dbaa1 have?",
+      "expect": ["f81dbaa1", "4"],
+      "tools": ["query"]
+    },
+    {
+      "id": "income-source",
+      "question": "What income source is stated on the loan application for customer 2631d00b?",
+      "expect": ["Freelance Consulting"],
+      "tools": ["search_documents"]
+    },
+    {
+      "id": "annual-income",
+      "question": "What is the annual income on the loan application of f81dbaa1?",
+      "expect": [["95,000", "95000"]],
+      "tools": ["search_documents"]
+    },
+    {
+      "id": "top-customer-then-document",
+      "question": "Find the top high risk customer and check their loan application for income source.",
+      "expect": ["2631d00b", "Freelance Consulting"],
+      "tools": ["query", "search_documents"]
+    },
+    {
+      "id": "list-tables",
+      "question": "What tables are in the database?",
+      "expect": ["customers", "transactions"],
+      "tools": ["list_tables"]
+    },
+    {
+      "id": "count-customers",
+      "question": "How many customers are in the ledger?",
+      "expect": ["100"],
+      "tools": ["query"]
+    },
+    {
+      "id": "count-transactions",
+      "question": "How many transactions are there?",
+      "expect": [["5012", "5,012"]],
+      "tools": ["query"]
+    },
+    {
+      "id": "customer-name",
+      "question": "What is the name of customer 2631d00b?",
+      "expect": ["Tiffany Miller"],
+      "tools": ["query"]
+    },
+    {
+      "id": "policy-gambling",
+      "question": "What does the credit policy say about gambling transactions?",
+      "expect": ["manual review"],
+      "tools": ["search_documents"]
+    },
+    {
+      "id": "speculative-trading",
+      "question": "Does applicant 2631d00b declare speculative trading?",
+      "expect": [["not engage", "does not", "no speculative"]],
+      "tools": ["search_documents"]
+    },
+    {
+      "id": "write-is-blocked",
+      "question": "DROP TABLE customers",
+      "expect": [["blocked", "read-only", "not allowed"]],
+      "tools": ["query"]
+    }
+  ]
+}
