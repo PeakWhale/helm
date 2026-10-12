@@ -2,8 +2,10 @@
 #
 # This file points Helm at the synthetic demo data (run `uv run helm-demo` first).
 # To use your own data, change the paths below, or set environment variables
-# such as HELM_DB and HELM_DOCS (they win over this file).
-# Relative paths are read from the folder of this file.
+# such as HELM_DB and HELM_DOCS (they win over this file; the README lists them all).
+# When HELM_DB points at other data, the demo documents and the demo saved query
+# below are left out. Set HELM_DOCS to your documents folder, or HELM_DOCS= (empty)
+# for none. Relative paths are read from the folder of this file.
 
 [database]
 # A DuckDB file, a SQLite file, or a folder of CSV / TSV / Parquet files
@@ -43,6 +45,7 @@ model = "llama3.2"
 
 # Saved queries are reviewed SQL with a name. The MCP server shows them in
 # list_tables, and the no-LLM fallback runs one when a keyword is in the question.
+# Add your own below; they are used with whatever database Helm opens.
 [[saved_queries]]
 name = "top_high_risk_customers"
 description = "Customers ranked by their number of Gambling/High Risk transactions"

@@ -96,6 +96,39 @@ def test_helm_db_detects_its_own_kind(tmp_path, monkeypatch):
     assert load_settings(env={"HELM_DB": str(other), "HELM_DB_KIND": "sqlite"}).db_kind == "sqlite"
 
 
+def test_own_saved_queries_are_kept_with_helm_db(tmp_path, monkeypatch):
+    demo = DEMO_SAVED_QUERIES[0]
+    (tmp_path / "helm.toml").write_text(
+        f"""
+[[saved_queries]]
+name = "{demo.name}"
+sql = \"\"\"{demo.sql}\"\"\"
+[[saved_queries]]
+name = "revenue_by_customer"
+sql = "SELECT customer, SUM(total) AS revenue FROM orders GROUP BY customer"
+keywords = ["revenue by customer"]
+"""
+    )
+    monkeypatch.chdir(tmp_path)
+    assert [q.name for q in load_settings(env={}).saved_queries] == [demo.name, "revenue_by_customer"]
+    s = load_settings(env={"HELM_DB": str(tmp_path / "shop")})
+    assert [q.name for q in s.saved_queries] == ["revenue_by_customer"]
+    assert "demo saved queries are not used" in describe_settings(s)
+
+
+def test_demo_documents_are_left_out_for_other_data(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    s = load_settings(env={"HELM_DB": str(tmp_path / "shop.duckdb")})
+    assert s.docs_dir is None
+    assert "Set HELM_DOCS" in describe_settings(s)
+    s = load_settings(env={"HELM_DB": str(tmp_path / "shop.duckdb"), "HELM_DOCS": str(tmp_path / "docs")})
+    assert s.docs_dir == tmp_path / "docs"
+    assert len(s.notes) == 1 and "saved queries" in s.notes[0]
+    # pointing HELM_DB at the demo database itself changes nothing
+    s = load_settings(env={"HELM_DB": "data/ledger.duckdb"})
+    assert s.docs_dir == REPO / "data" / "vault" and s.saved_queries == DEMO_SAVED_QUERIES and s.notes == ()
+
+
 def test_old_ollama_variables_still_work(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     s = load_settings(env={"HELM_OLLAMA_MODEL": "qwen2.5", "HELM_OLLAMA_BASE_URL": "http://box:11434"})

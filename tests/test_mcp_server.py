@@ -117,3 +117,7 @@ def test_check_command_reports_problems(tmp_path, monkeypatch, demo_settings, ca
     assert run_check(broken) == 1
     out = capsys.readouterr().out
     assert "[problem] Database" in out and "helm-demo" in out
+    # a database without documents is fine
+    assert run_check(replace(demo_settings, docs_dir=None)) == 0
+    out = capsys.readouterr().out
+    assert "[ok] Database" in out and "[info] Documents: none" in out

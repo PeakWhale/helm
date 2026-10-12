@@ -77,6 +77,7 @@ class Settings:
     saved_queries: tuple[SavedQuery, ...] = ()
     llm: LLMSettings = field(default_factory=LLMSettings)
     config_file: Path | None = None
+    notes: tuple[str, ...] = ()  # things the user should know, shown by --check
 
     def with_data(self, db: str | Path, docs: str | Path | None) -> "Settings":
         """Return a copy that points at another database and documents folder."""
@@ -196,6 +197,13 @@ def _saved_queries(items: Any) -> tuple[SavedQuery, ...]:
     return tuple(result)
 
 
+def _without_demo_queries(saved: tuple[SavedQuery, ...]) -> tuple[SavedQuery, ...]:
+    from .demo import DEMO_SAVED_QUERIES  # here, not at the top: demo imports this module
+
+    demo = {(q.name, " ".join(q.sql.split())) for q in DEMO_SAVED_QUERIES}
+    return tuple(q for q in saved if (q.name, " ".join(q.sql.split())) not in demo)
+
+
 def load_settings(
     config_path: str | Path | None = None,
     env: Mapping[str, str] | None = None,
@@ -210,6 +218,7 @@ def load_settings(
     docs: str | None = _resolve(DEFAULT_DOCS, cwd)
     llm: dict[str, Any] = {}
     saved: tuple[SavedQuery, ...] = ()
+    notes: list[str] = []
 
     config_file = _find_config_file(config_path, env)
     if config_file:
@@ -258,11 +267,22 @@ def load_settings(
     if env_db:
         new_target = _resolve(env_db, cwd)
         if new_target != db_target:
-            # Another database: detect its kind again (HELM_DB_KIND can still set it).
+            # Another database: detect its kind again (HELM_DB_KIND can still set it), and
+            # leave out the demo's saved queries and documents, which belong to the demo.
             db_kind = None
-        if saved and new_target != db_target:
-            # Saved queries are written for one database. Do not run them on another one.
-            saved = ()
+            kept = _without_demo_queries(saved)
+            if len(kept) < len(saved):
+                notes.append("The demo saved queries are not used, because HELM_DB points at other data.")
+            saved = kept
+            demo_docs = {Path(_resolve(DEFAULT_DOCS, cwd))}
+            if config_file:
+                demo_docs.add(Path(_resolve(DEFAULT_DOCS, config_file.parent)))
+            if "HELM_DOCS" not in env and docs is not None and Path(docs) in demo_docs:
+                docs = None
+                notes.append(
+                    "The demo documents are not used, because HELM_DB points at other data. "
+                    "Set HELM_DOCS to a folder of your own documents."
+                )
         db_target = new_target
     if env.get("HELM_DB_KIND", "").strip():
         db_kind = env["HELM_DB_KIND"].strip().lower()
@@ -322,6 +342,7 @@ def load_settings(
         saved_queries=saved,
         llm=llm_settings,
         config_file=config_file,
+        notes=tuple(notes),
         **values,
     )
 
@@ -340,6 +361,7 @@ def describe_settings(settings: Settings) -> str:
     ]
     if settings.saved_queries:
         lines.append("Saved SQL   : " + ", ".join(q.name for q in settings.saved_queries))
+    lines += [f"Note        : {note}" for note in settings.notes]
     return "\n".join(lines)
 
 

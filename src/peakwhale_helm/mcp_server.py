@@ -109,6 +109,10 @@ def run_check(settings: Settings, out=None) -> int:
     print(f"Tools       : {', '.join(tb.tool_names)}", file=out)
     status = 0
     for label, call in (("Database", tb.list_tables), ("Documents", tb.list_documents)):
+        if label == "Documents" and settings.docs_dir is None:
+            # A database without documents is a normal setup, not a problem.
+            print("\n[info] Documents: none. Set HELM_DOCS to a folder to search documents too.", file=out)
+            continue
         try:
             result = call()
             print(f"\n[ok] {label}\n{result}", file=out)
