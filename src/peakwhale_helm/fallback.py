@@ -205,6 +205,20 @@ class FallbackPlanner:
         run.sources.append(source)
         return source
 
+    async def _document_names(self, run: "_Run") -> list[str]:
+        """File names in the documents folder, lower case (looked up once per question).
+
+        Only used to decide on a file filter, so it is not listed as a source.
+        """
+        if run.documents is None:
+            try:
+                output = await self._call_tool("list_documents", {})
+            except Exception:
+                output = ""
+            columns, rows = parse_markdown_table(output)
+            run.documents = [r[0].lower() for r in rows] if columns and columns[0] == "file" else []
+        return run.documents
+
     async def _tables(self, run: "_Run", force: bool = False) -> list[str]:
         """Table names from list_tables (called once per question)."""
         if run.tables is None or force:
@@ -497,35 +511,48 @@ class FallbackPlanner:
 
     async def _do_docs(self, run: "_Run", part: Part, loose: str) -> None:
         explicit = _ids(part.text)
-        entity = explicit[0] if explicit else run.entity
+        entity = run.entity
+        mention = None  # an id that the passage itself must contain
+        if explicit:
+            # An id-like word (2631d00b, but also COVID-19 or 1099-K) filters the files only when
+            # it is part of a file name. Otherwise it stays a search word, and the passage must have it.
+            names = await self._document_names(run)
+            in_names = [t for t in explicit if any(t.lower() in name for name in names)]
+            entity = in_names[0] if in_names else entity
+            mention = None if in_names else explicit[0]
         query = re.sub(r"QUOTE\d+", " ", part.text)
         if entity:
             query = re.sub(re.escape(entity), " ", query, flags=re.I)
         query = " ".join(query.split()) or part.text
-        args: dict[str, Any] = {"query": query, "top_k": 3}
+        args: dict[str, Any] = {"query": query, "top_k": 5 if mention else 3}
         if entity:
             args["source_filter"] = entity
         source = await self._call(run, "search_documents", args)
         if source.error:
             self._fail(run, source, "search the documents")
             return
-        hits = source.hits()
+        hits = list(zip(source.hits(), _hit_texts(source.output)))
+        if mention:
+            hits = [(label, text) for label, text in hits if mention.lower() in text.lower()]
+            if not hits:
+                run.lines.append(f"No document passage mentions {mention} [{source.id}].")
+                return
         if not hits:
             where = f" in files for {entity}" if entity else ""
             run.lines.append(f'No document passage matched "{query}"{where} [{source.id}].')
             return
-        first_text = _first_hit_text(source.output)
+        label, text = hits[0]
         focus = set(terms(f"{part.text} {loose}")) - NOT_FOCUS - set(terms(entity or ""))
-        line, score = _best_line(first_text, focus)
+        line, score = _best_line(text, focus)
         if score == 0:
-            line = shorten(first_text, 300)
-        run.lines.append(f'From {hits[0]}: "{line}" [{source.id}]')
+            line = shorten(text, 300)
+        run.lines.append(f'From {label}: "{line}" [{source.id}]')
 
 
-def _first_hit_text(output: str) -> str:
-    """The text of hit [1] in a search_documents result."""
-    match = re.search(r"^\[1\] .+?, score -?[\d.]+\n(.*?)(?=^\[2\] |\Z)", output, re.S | re.M)
-    return match.group(1).strip() if match else ""
+def _hit_texts(output: str) -> list[str]:
+    """The text of each hit ([1], [2], ...) in a search_documents result."""
+    pattern = r"^\[\d+\] .+?, score -?[\d.]+\n(.*?)(?=^\[\d+\] |\Z)"
+    return [m.group(1).strip() for m in re.finditer(pattern, output, re.S | re.M)]
 
 
 @dataclass
@@ -534,4 +561,5 @@ class _Run:
     sources: list[Source] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
     tables: list[str] | None = None
+    documents: list[str] | None = None
     entity: str | None = None

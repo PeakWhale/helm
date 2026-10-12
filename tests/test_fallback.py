@@ -103,3 +103,29 @@ def test_counts_with_a_filter_are_declined_not_guessed(demo_settings):
     answer, _ = ask(demo_settings, "How many rows does the transactions table have?")
     assert "The table transactions has 5012 rows" in answer
 
+
+def test_ids_that_are_not_file_names_stay_search_words(tmp_path, monkeypatch):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "relief_policy.md").write_text(
+        "# Relief policy\n\nCOVID-19 relief: payments may be deferred for up to 90 days.\n\n"
+        "Form 1099-K income must be reported in full.\n"
+    )
+    (docs / "c42a_letter.txt").write_text("Customer c42a asked for a payment holiday.\n")
+    db = tmp_path / "shop.sqlite"
+    sqlite3.connect(db).execute("CREATE TABLE t (x)").connection.commit()
+    monkeypatch.chdir(tmp_path)
+    settings = load_settings(env={"HELM_DB": str(db), "HELM_DOCS": str(docs)})
+
+    answer, sources = ask(settings, "What does the relief policy say about COVID-19 relief?")
+    assert '"COVID-19 relief: payments may be deferred for up to 90 days." [S1]' in answer
+    assert "source_filter" not in sources[0].args
+    answer, _ = ask(settings, "What does the policy say about Form 1099-K income?")
+    assert "Form 1099-K income must be reported in full." in answer
+    # an id that is in a file name still picks that file
+    answer, sources = ask(settings, "What does the letter for c42a say?")
+    assert sources[0].args["source_filter"] == "c42a" and "payment holiday" in answer
+    # an id that is nowhere is not answered from some other file
+    answer, _ = ask(settings, "What does the letter say about customer zz9999?")
+    assert "No document passage mentions zz9999" in answer
+
