@@ -84,7 +84,8 @@ def build_agent_graph(llm: Any, toolset: ToolSet, system_prompt: str, max_steps:
                 source.error = True
             sources.append(source)
             content = f"[{source.id}] " + (f"Error: {source.output}" if source.error else source.output)
-            messages.append(ToolMessage(content=content, tool_call_id=call["id"], name=call["name"]))
+            call_id = call.get("id") or f"call_{count}"  # some servers leave the id out
+            messages.append(ToolMessage(content=content, tool_call_id=call_id, name=call["name"]))
         return {"messages": messages, "sources": sources, "rounds": state.get("rounds", 0) + 1}
 
     def route(state: AgentState) -> str:
