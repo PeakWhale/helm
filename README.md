@@ -96,11 +96,11 @@ Every query, from a person or a model, passes these checks first:
 
 1. **One statement only.** `SELECT 1; DROP TABLE x` is blocked.
 2. **Read only.** It must start with `SELECT` or `WITH`. `DROP`, `DELETE`, `ATTACH`, `COPY`, `INSTALL`, `PRAGMA`, `SET` and similar words are blocked anywhere.
-3. **Comments cannot hide a statement.** They are removed before the checks.
-4. **No file or network access.** `read_csv`, `glob`, `query()` and `FROM 'file.csv'` are blocked.
+3. **Comments and quotes cannot hide a statement.** Comments are removed before the checks. Text must use plain `'...'` quotes: `$$...$$` text, `$1` parameters and backslash escapes in `E'...'` text are blocked, so the guard and the database always agree on where text starts and ends.
+4. **No file or network access.** `read_csv`, `glob`, `query()` and file names used as tables (`FROM 'file.csv'`, `FROM "file.csv"`, `FROM file.csv`) are blocked.
 5. **Row limit.** Results stop at `HELM_MAX_ROWS`, and the answer says when a result was cut.
 
-The database is locked too: files open read-only, DuckDB cannot read files outside the data folder, SQLite only allows reads, and slow queries stop at the time limit. The tests are in `tests/test_sql_guard.py`.
+The database is locked too, so a gap in the guard is not enough on its own: DuckDB's own parser must also see exactly one `SELECT`; DuckDB and SQLite files open read-only and PostgreSQL is attached read-only; DuckDB can read only the data files themselves (plus an empty, private temp folder); SQLite only allows reads; settings are locked; and slow queries stop at the time limit. The tests are in `tests/test_sql_guard.py` and `tests/test_database.py`.
 
 ## Tests and evals
 
