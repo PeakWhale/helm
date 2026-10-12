@@ -10,6 +10,8 @@ dependencies = [
     "duckdb>=1.4.3",
     "mcp>=1.24.0",
     "pypdf>=6.4.2",
+    # DuckDB needs pytz to return TIMESTAMPTZ values (and now()) to Python.
+    "pytz>=2024.1",
     "reportlab>=4.4.6",
 ]
 

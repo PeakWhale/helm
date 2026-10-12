@@ -18,8 +18,13 @@ def format_value(value: Any) -> str:
         return f"{value:.10g}"
     if isinstance(value, decimal.Decimal):
         return format(value, "f")
-    if isinstance(value, (_dt.datetime, _dt.date, _dt.time)):
-        return value.isoformat(sep=" ") if isinstance(value, _dt.datetime) else value.isoformat()
+    if isinstance(value, _dt.datetime):
+        if value.tzinfo is not None:
+            # Same text on every machine, whatever its local time zone.
+            value = value.astimezone(_dt.timezone.utc)
+        return value.isoformat(sep=" ")
+    if isinstance(value, (_dt.date, _dt.time)):
+        return value.isoformat()
     if isinstance(value, (bytes, bytearray, memoryview)):
         return f"<{len(bytes(value))} bytes>"
     text = str(value)

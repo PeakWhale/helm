@@ -2718,6 +2718,7 @@ dependencies = [
     { name = "duckdb" },
     { name = "mcp" },
     { name = "pypdf" },
+    { name = "pytz" },
     { name = "reportlab" },
 ]
 
@@ -2776,6 +2777,7 @@ requires-dist = [
     { name = "peakwhale-helm", extras = ["agent"], marker = "extra == 'ui'" },
     { name = "peakwhale-helm", extras = ["ui", "market", "ml"], marker = "extra == 'all'" },
     { name = "pypdf", specifier = ">=6.4.2" },
+    { name = "pytz", specifier = ">=2024.1" },
     { name = "reportlab", specifier = ">=4.4.6" },
     { name = "sentence-transformers", marker = "extra == 'ml'", specifier = ">=5.2.0" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.9.1" },

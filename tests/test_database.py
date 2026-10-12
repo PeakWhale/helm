@@ -181,3 +181,19 @@ def test_postgres_is_attached_read_only(monkeypatch):
     assert "READ_ONLY" in sent[2] and "postgresql://me@localhost/shop" in sent[2]
     assert "SET enable_external_access = false" in sent
     assert "SET lock_configuration = true" in sent
+
+
+def test_time_zone_columns_work_and_show_in_utc(tmp_path):
+    # TIMESTAMPTZ values need pytz in DuckDB's Python client. It is a core dependency.
+    path = tmp_path / "events.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("SET TimeZone = 'America/New_York'")
+    con.execute("CREATE TABLE events (id INT, created_at TIMESTAMPTZ)")
+    con.execute("INSERT INTO events VALUES (1, '2025-01-02 03:04:05+00')")
+    con.close()
+    db = Database("duckdb", str(path))
+    info, columns, sample = db.describe_table("events")
+    assert columns == [("id", "INTEGER"), ("created_at", "TIMESTAMP WITH TIME ZONE")]
+    assert "2025-01-02 03:04:05+00:00" in sample.to_markdown()
+    assert "2025-01-02 03:04:05+00:00" in db.query("SELECT * FROM events").to_markdown()
+    assert len(db.query("SELECT now() AS t").rows) == 1
