@@ -1,0 +1,52 @@
+# PeakWhale Helm settings.
+#
+# This file points Helm at the synthetic demo data (run `uv run helm-demo` first).
+# To use your own data, change the paths below, or set environment variables
+# such as HELM_DB and HELM_DOCS (they win over this file).
+# Relative paths are read from the folder of this file.
+
+[database]
+# A DuckDB file, a SQLite file, or a folder of CSV / TSV / Parquet files
+# (each file becomes one view). The kind is detected; set `kind` to force it:
+# kind = "duckdb"   # duckdb | sqlite | files | postgres
+path = "data/ledger.duckdb"
+# Experimental: PostgreSQL through the DuckDB postgres extension (read-only).
+# url = "postgresql://user@localhost:5432/mydb"
+
+[documents]
+# A folder with PDF, Markdown (.md) and text (.txt) files. Subfolders are included.
+path = "data/vault"
+# bm25 = keyword search, no model needed (default).
+# embeddings = semantic search, needs `uv sync --extra ml`.
+retriever = "bm25"
+# embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+chunk_size = 800
+chunk_overlap = 120
+
+[limits]
+max_rows = 200              # rows returned by one query at most
+query_timeout_seconds = 30  # a query that runs longer is stopped
+
+[tools]
+market = false     # get_stock_price (calls the internet)
+sentiment = false  # analyze_sentiment (FinBERT, needs `uv sync --extra ml`)
+
+[llm]
+provider = "ollama"   # ollama | openai | none
+model = "llama3.2"
+# base_url = "http://localhost:11434"
+# For any OpenAI-compatible API (OpenAI, LM Studio, vLLM, ...):
+# provider = "openai"
+# model = "your-model-name"
+# base_url = "https://api.openai.com/v1"
+# Put the key in HELM_LLM_API_KEY or OPENAI_API_KEY, not in this file.
+
+# Saved queries are reviewed SQL with a name. The MCP server shows them in
+# list_tables, and the no-LLM fallback runs one when a keyword is in the question.
+[[saved_queries]]
+name = "top_high_risk_customers"
+description = "Customers ranked by their number of Gambling/High Risk transactions"
+keywords = ["top high risk", "most high risk", "most gambling", "high risk customer", "high risk transactions"]
+sql = """
+SELECT customer_id, COUNT(*) AS high_risk_count FROM transactions WHERE category = 'Gambling/High Risk' GROUP BY customer_id ORDER BY high_risk_count DESC, customer_id
+"""
