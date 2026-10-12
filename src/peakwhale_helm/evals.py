@@ -3,8 +3,8 @@
     uv run helm-eval --fresh-demo          # rule-based fallback, offline, fresh demo data
     uv run helm-eval --llm                 # the LLM agent (needs Ollama or an API)
 
-A case passes when every expected text is in the answer (before the Sources list)
-and every expected tool was used.
+A case passes when every expected text is in the answer (before the Sources list),
+no rejected text is in it, and every expected tool was used.
 """
 
 from __future__ import annotations
@@ -71,6 +71,9 @@ def check_case(case: dict[str, Any], answer: str, sources: list[Source]) -> list
         options = item if isinstance(item, list) else [item]
         if not any(_contains(body, str(option)) for option in options):
             problems.append("missing " + " or ".join(f'"{o}"' for o in options))
+    for item in case.get("reject", []):
+        if _contains(body, str(item)):
+            problems.append(f'has "{item}"')
     used = {s.tool for s in sources}
     for tool in case.get("tools", []):
         if tool not in used:

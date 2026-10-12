@@ -61,6 +61,16 @@ LIST_DOCS = re.compile(
 )
 DESCRIBE = re.compile(r"\b(?:describe|columns?|schema|fields|structure)\b", re.I)
 COUNT = re.compile(r"\bhow many\b|\bnumber of\b|\bcount\b", re.I)
+# The noun right after "how many" / "number of" / "count" says which table is counted.
+COUNT_OBJECT = re.compile(r"\b(?:how many|number of|count(?: of)?)\s+(?:(?:the|all|of)\s+)*(.*)$")
+# Words that may come with an unfiltered count ("How many customers are in the ledger?").
+# Any other word is a filter ("... have a risk score above 700"), which the count rule cannot do.
+COUNT_FILLER = frozenset(
+    """how many number of count the a an all are is there s in on inside our my your this that these
+    those total altogether overall rows row records record entries entry items table tables database db
+    data dataset ledger do does did we you i have has exist exists stored listed currently now so far
+    what whats tell me please can could would show give find get know""".split()
+)
 SENTIMENT = re.compile(r"\bsentiment\b", re.I)
 
 DOC_WORDS = frozenset(
@@ -99,11 +109,34 @@ def _singular(word: str) -> str:
 def _table_mentioned(text: str, tables: Sequence[str]) -> str | None:
     norm = f" {_normalize(text)} "
     for table in tables:
-        short = table.split(".")[-1].lower()
-        variants = {short, _singular(short), short.replace("_", " "), _singular(short).replace("_", " ")}
-        if any(f" {v} " in norm for v in variants if len(v) > 2):
+        if any(f" {v} " in norm for v in _table_variants(table)):
             return table
     return None
+
+
+def _table_variants(table: str) -> set[str]:
+    short = table.split(".")[-1].lower()
+    variants = {short, _singular(short), short.replace("_", " "), _singular(short).replace("_", " ")}
+    return {v for v in variants if len(v) > 2}
+
+
+def _count_table(text: str, tables: Sequence[str]) -> str | None:
+    """The table a count question is about: the noun after "how many", else any table named."""
+    match = COUNT_OBJECT.search(_normalize(text))
+    if match:
+        after = f" {match.group(1)} "
+        for table in tables:
+            if any(after.startswith(f" {v} ") for v in _table_variants(table)):
+                return table
+    return _table_mentioned(text, tables)
+
+
+def _count_has_filter(text: str, table: str) -> bool:
+    """True when a count question asks about only some rows (an id, a value, another table ...)."""
+    norm = f" {_normalize(text)} "
+    for variant in sorted(_table_variants(table), key=len, reverse=True):
+        norm = norm.replace(f" {variant} ", " ")
+    return any(word not in COUNT_FILLER for word in norm.split())
 
 
 def _quote_ident(name: str) -> str:
@@ -397,7 +430,7 @@ class FallbackPlanner:
 
     async def _do_table_part(self, run: "_Run", part: Part) -> None:
         tables = await self._tables(run)
-        table = _table_mentioned(part.text, tables)
+        table = _count_table(part.text, tables) if part.kind == "count" else _table_mentioned(part.text, tables)
         if table is None and part.kind == "lookup":
             # An id but no table: look for it in the documents instead.
             await self._do_docs(run, part, "")
@@ -415,6 +448,14 @@ class FallbackPlanner:
             listed = ", ".join(f"{r[0]} ({r[1]})" for r in rows)
             run.lines.append(f"Table {table} has {len(rows)} columns: {listed} [{source.id}].")
         elif part.kind == "count":
+            if _count_has_filter(part.text, table):
+                # "How many transactions does customer X have?" is not the row count of a table.
+                run.lines.append(
+                    "Without an LLM I can only count all rows of a table, and this question asks about some "
+                    "of the rows only, so I did not guess. Connect an LLM, or send one SQL query, for example: "
+                    f"SELECT COUNT(*) FROM {_quote_ident(table)} WHERE ..."
+                )
+                return
             source = await self._call(run, "query", {"sql": f"SELECT COUNT(*) AS row_count FROM {_quote_ident(table)}"})
             if source.error:
                 self._fail(run, source, f"count the rows in {table}")

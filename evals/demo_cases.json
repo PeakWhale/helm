@@ -1,5 +1,5 @@
 {
-  "description": "Questions over the synthetic demo data (uv run helm-demo). 'expect': every item must appear in the answer (a list inside means: any one of these). 'tools': tools that must be used.",
+  "description": "Questions over the synthetic demo data (uv run helm-demo). 'expect': every item must appear in the answer (a list inside means: any one of these). 'reject': none of these may appear. 'tools': tools that must be used.",
   "cases": [
     {
       "id": "top-risk-customer",
@@ -48,6 +48,18 @@
       "question": "How many transactions are there?",
       "expect": [["5012", "5,012"]],
       "tools": ["query"]
+    },
+    {
+      "id": "count-for-one-customer",
+      "question": "How many transactions does customer f81dbaa1 have?",
+      "expect": [["54", "can only count all rows"]],
+      "reject": ["100 rows", "5012 rows", "5,012 rows"]
+    },
+    {
+      "id": "count-with-condition",
+      "question": "How many customers have a risk score above 700?",
+      "expect": [["19", "can only count all rows"]],
+      "reject": ["100 rows"]
     },
     {
       "id": "customer-name",

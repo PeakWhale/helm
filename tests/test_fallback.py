@@ -89,3 +89,17 @@ def test_rules_work_on_any_database_not_only_the_demo(tmp_path, monkeypatch):
     assert "within 30 days with a receipt" in answer and "returns_policy.md" in answer
     answer, _ = ask(settings, "SELECT title FROM products ORDER BY price DESC LIMIT 1")
     assert "Red kettle" in answer
+
+
+def test_counts_with_a_filter_are_declined_not_guessed(demo_settings):
+    for question in (
+        "How many transactions does customer f81dbaa1 have?",
+        "How many customers have a risk score above 700?",
+        "How many customers joined in 2024?",
+    ):
+        answer, sources = ask(demo_settings, question)
+        assert "can only count all rows" in answer, question
+        assert " rows [S" not in answer and "query" not in [s.tool for s in sources]
+    answer, _ = ask(demo_settings, "How many rows does the transactions table have?")
+    assert "The table transactions has 5012 rows" in answer
+

@@ -29,6 +29,13 @@ def test_check_case_rules():
     bad = "Id 2631d008b.\n\n**Sources**\n- 8 95,000"
     problems = check_case(case, bad, [])
     assert problems == ['missing "8"', 'missing "95,000" or "95000"', "tool query not used"]
+    # "reject": a wrong answer that must not appear
+    case = {"expect": [["54", "can only count all rows"]], "reject": ["100 rows"]}
+    assert check_case(case, "I can only count all rows of a table.", []) == []
+    assert check_case(case, "The table customers has 100 rows.", []) == [
+        'missing "54" or "can only count all rows"',
+        'has "100 rows"',
+    ]
 
 
 def test_helm_eval_command_with_fresh_demo(monkeypatch, tmp_path):
