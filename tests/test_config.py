@@ -85,6 +85,17 @@ def test_env_wins_and_drops_saved_queries_for_another_db(tmp_path, monkeypatch):
     assert s.llm.provider == "none"
 
 
+def test_helm_db_detects_its_own_kind(tmp_path, monkeypatch):
+    # helm.toml says "files" for its CSV folder. HELM_DB points at a DuckDB file instead.
+    (tmp_path / "helm.toml").write_text('[database]\nkind = "files"\npath = "csvs"\n')
+    other = tmp_path / "other.duckdb"
+    duckdb.connect(str(other)).execute("CREATE TABLE t (x INT)").close()
+    monkeypatch.chdir(tmp_path)
+    assert load_settings(env={}).db_kind == "files"
+    assert load_settings(env={"HELM_DB": str(other)}).db_kind == "duckdb"
+    assert load_settings(env={"HELM_DB": str(other), "HELM_DB_KIND": "sqlite"}).db_kind == "sqlite"
+
+
 def test_old_ollama_variables_still_work(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     s = load_settings(env={"HELM_OLLAMA_MODEL": "qwen2.5", "HELM_OLLAMA_BASE_URL": "http://box:11434"})

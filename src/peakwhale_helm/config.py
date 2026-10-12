@@ -257,6 +257,9 @@ def load_settings(
     env_db = env.get("HELM_DB", "").strip()
     if env_db:
         new_target = _resolve(env_db, cwd)
+        if new_target != db_target:
+            # Another database: detect its kind again (HELM_DB_KIND can still set it).
+            db_kind = None
         if saved and new_target != db_target:
             # Saved queries are written for one database. Do not run them on another one.
             saved = ()
