@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Local-first research assistant and MCP server that answers questions from your own database and documents, with sources."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
+license = "Apache-2.0"
 authors = [{ name = "Aditya Rao (Addy) Kaveti", email = "ad.rkav@gmail.com" }]
 keywords = ["mcp", "duckdb", "rag", "langgraph", "ollama", "research-assistant"]
 dependencies = [

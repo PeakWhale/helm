@@ -7,7 +7,7 @@
 ![MCP](https://img.shields.io/badge/MCP-Server-informational)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Agent-9cf)
 ![Ollama](https://img.shields.io/badge/Local%20LLM-Ollama-lightgrey)
-![License: MIT](https://img.shields.io/badge/License-MIT-green)
+![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green)
 [![CI](https://github.com/PeakWhale/helm/actions/workflows/ci.yml/badge.svg)](https://github.com/PeakWhale/helm/actions/workflows/ci.yml)
 
 **PeakWhale™ Helm** is a local-first research assistant. It answers questions from your database and your documents, and shows where each fact came from: the SQL query and row count, or the file and chunk.
@@ -166,7 +166,7 @@ CI runs the tests and the fallback evals on Python 3.11 to 3.14 on every push an
 * **PeakWhale™ Berth**: EV fleet charging planner.
 
 ## License
-MIT License © 2025-2026 Aditya Rao (Addy) Kaveti. PeakWhale™ is Addy's project name.
+Apache License 2.0 © 2025-2026 Aditya Rao (Addy) Kaveti. See [LICENSE](LICENSE) and [NOTICE](NOTICE). If you share or build on Helm, keep the NOTICE file. PeakWhale™ is Addy's project name; the license does not cover the name or logo.
 
 ## Author
 Built by Addy
