@@ -166,7 +166,7 @@ CI runs the tests and the fallback evals on Python 3.11 to 3.14 on every push an
 * **PeakWhale™ Berth**: EV fleet charging planner.
 
 ## License
-MIT License © 2025 PeakWhale™
+MIT License © 2025-2026 Aditya Rao (Addy) Kaveti. PeakWhale™ is Addy's project name.
 
 ## Author
 Built by Addy
