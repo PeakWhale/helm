@@ -28,7 +28,10 @@ from .sources import Source, error_text, format_sources
 
 ToolCaller = Callable[[str, dict[str, Any]], Awaitable[str]]
 
-FOOTER = "_Answered by the rule-based fallback (no LLM). It only understands simple questions; connect an LLM for open questions._"
+FOOTER = (
+    "_Answered by the rule-based fallback (no LLM). "
+    "It only understands simple questions; connect an LLM for open questions._"
+)
 
 SQL_START = re.compile(
     r"^\s*\(?\s*(select|with|insert|update|delete|drop|create|alter|attach|detach|copy|install|load|"
@@ -339,7 +342,7 @@ class FallbackPlanner:
             return
         text = part.detail.get("text") or ""
         if not text:
-            run.lines.append("Tell me the text to score, in quotes, for example: sentiment of 'Profits beat forecasts'.")
+            run.lines.append("Tell me the text to score in quotes, like: sentiment of 'Profits beat forecasts'.")
             return
         source = await self._call(run, "analyze_sentiment", {"text": text})
         if source.error:
@@ -379,7 +382,9 @@ class FallbackPlanner:
                 run.lines.append(f"For {wanted[0]}: {_row_text(columns, match[0])} [{source.id}].")
                 run.entity = wanted[0]
             else:
-                run.lines.append(f"{wanted[0]} does not appear in the result of the saved query {saved.name} [{source.id}].")
+                run.lines.append(
+                    f"{wanted[0]} does not appear in the result of the saved query {saved.name} [{source.id}]."
+                )
             return
         top = rows[0]
         run.entity = next((cell for cell in top if ID_TOKEN.fullmatch(cell)), top[0])
@@ -446,7 +451,8 @@ class FallbackPlanner:
             return
         asked = [c for c in columns if c != column and _words(c.replace("_", " ")) & _words(part.text)]
         run.entity = value
-        run.lines.append(f"{table} row where {column} = {value}: {_row_text(columns, rows[0], asked or None)} [{source.id}].")
+        found = _row_text(columns, rows[0], asked or None)
+        run.lines.append(f"{table} row where {column} = {value}: {found} [{source.id}].")
 
     async def _do_docs(self, run: "_Run", part: Part, loose: str) -> None:
         explicit = _ids(part.text)

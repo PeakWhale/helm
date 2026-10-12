@@ -191,7 +191,8 @@ class EmbeddingIndex:
     def __init__(self, chunks: Sequence[Chunk], embedder: Embedder):
         self.chunks = list(chunks)
         self.embedder = embedder
-        self.vectors = [_normalize(v) for v in embedder.embed_documents([c.text for c in self.chunks])] if chunks else []
+        texts = [c.text for c in self.chunks]
+        self.vectors = [_normalize(v) for v in embedder.embed_documents(texts)] if texts else []
 
     def scores(self, query: str) -> list[float]:
         q = _normalize(self.embedder.embed_query(query))

@@ -73,7 +73,8 @@ class Assistant:
                 return
             except Exception as exc:
                 logger.warning("LLM run failed, using the fallback: %s", exc)
-                yield Event("note", text=f"The LLM failed ({exc.__class__.__name__}: {exc}). Using the rule-based fallback.")
+                reason = f"{exc.__class__.__name__}: {exc}"
+                yield Event("note", text=f"The LLM failed ({reason}). Using the rule-based fallback.")
 
         result = await self.fallback.run(question)
         for source in result.sources:
@@ -140,7 +141,9 @@ class Assistant:
                 elif node == "tools":
                     for source in data.get("sources", []):
                         sources.append(source)
-                        yield Event("tool_result", text=source.output, tool=source.tool, args=source.args, source=source)
+                        yield Event(
+                            "tool_result", text=source.output, tool=source.tool, args=source.args, source=source
+                        )
         yield Event("answer", text=compose_answer(final_text, sources, self.llm_label))
 
 

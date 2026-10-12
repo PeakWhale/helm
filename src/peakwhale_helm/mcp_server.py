@@ -93,7 +93,9 @@ def build_server(settings: Settings | None = None, toolbox: Toolbox | None = Non
     }
     for name in tb.tool_names:
         fn, annotations = functions[name]
-        server.add_tool(fn, name=name, description=tb.description(name), annotations=annotations, structured_output=False)
+        server.add_tool(
+            fn, name=name, description=tb.description(name), annotations=annotations, structured_output=False
+        )
     server.helm_toolbox = tb  # handy for tests and embedding
     return server
 

@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 
