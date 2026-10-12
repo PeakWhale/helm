@@ -380,7 +380,7 @@ class FallbackPlanner:
 
     def _say_plain(self, run: "_Run", source: Source, title: str) -> None:
         if source.error:
-            self._fail(run, source, title.lower())
+            self._fail(run, source, f"get the {title.lower()}")
         else:
             run.lines.append(f"{title} [{source.id}]:\n\n{source.output}")
 
