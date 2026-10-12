@@ -28,6 +28,9 @@ from typing import Protocol, Sequence
 logger = logging.getLogger("helm.documents")
 
 SUPPORTED_SUFFIXES = (".pdf", ".md", ".markdown", ".txt")
+# Limits so that one huge or malformed file cannot stall the index for all the others.
+MAX_FILE_BYTES = 50 * 1024 * 1024
+MAX_PDF_PAGES = 2000
 
 STOPWORDS = frozenset(
     """a an and are as at be by can could did do does for from had has have how i if in into is it
@@ -152,6 +155,8 @@ def read_document(path: Path) -> list[tuple[int | None, str]]:
         from pypdf import PdfReader
 
         reader = PdfReader(str(path))
+        if len(reader.pages) > MAX_PDF_PAGES:
+            raise DocumentError(f"more than {MAX_PDF_PAGES} pages, not indexed")
         return [(i + 1, page.extract_text() or "") for i, page in enumerate(reader.pages)]
     return [(None, path.read_text(encoding="utf-8", errors="replace"))]
 
@@ -291,6 +296,11 @@ class DocumentStore:
         for path in files:
             source = path.relative_to(self.folder).as_posix()
             kind = path.suffix.lower().lstrip(".")
+            size = path.stat().st_size
+            if size > MAX_FILE_BYTES:
+                problem = f"larger than {MAX_FILE_BYTES // (1024 * 1024)} MB, not indexed"
+                infos.append(DocumentInfo(source, kind, size, 0, problem))
+                continue
             try:
                 pages = read_document(path)
             except Exception as exc:  # a broken file should not stop the others

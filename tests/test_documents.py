@@ -2,6 +2,7 @@ import os
 
 import pytest
 
+import peakwhale_helm.documents as documents_module
 from peakwhale_helm.documents import DocumentError, DocumentStore, chunk_text, terms
 
 
@@ -133,3 +134,23 @@ def test_embeddings_fall_back_to_bm25_when_model_is_missing(demo_dir, monkeypatc
     store = DocumentStore(demo_dir / "vault", retriever="embeddings")
     assert store.search("income source", source_filter="2631d00b")
     assert store.retriever_note.startswith("bm25 (embeddings unavailable")
+
+
+def test_huge_files_are_skipped_with_a_note(tmp_path, demo_dir, monkeypatch):
+    texts, pdfs = tmp_path / "texts", tmp_path / "pdfs"
+    texts.mkdir()
+    pdfs.mkdir()
+    (texts / "small.txt").write_text("Refunds take five days.")
+    (texts / "big.txt").write_text("Refunds " * 100)
+    (pdfs / "loan.pdf").write_bytes((demo_dir / "vault" / "2631d00b_loan_app.pdf").read_bytes())
+    monkeypatch.setattr(documents_module, "MAX_FILE_BYTES", 200)
+    store = DocumentStore(texts)
+    docs = {d.source: d for d in store.list_documents()}
+    assert docs["small.txt"].chunks == 1 and docs["small.txt"].error is None
+    assert docs["big.txt"].chunks == 0 and "not indexed" in docs["big.txt"].error
+    assert [h.chunk.source for h in store.search("refunds")] == ["small.txt"]
+
+    monkeypatch.setattr(documents_module, "MAX_FILE_BYTES", 10_000_000)
+    monkeypatch.setattr(documents_module, "MAX_PDF_PAGES", 0)
+    (doc,) = DocumentStore(pdfs).list_documents()
+    assert doc.chunks == 0 and "pages, not indexed" in doc.error
