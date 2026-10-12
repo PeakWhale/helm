@@ -9,9 +9,12 @@ Supported sources:
 * ``postgres`` - experimental: a PostgreSQL database attached read-only through
                  DuckDB's postgres extension
 
-Every user query goes through :mod:`peakwhale_helm.sql_guard` first. On top of that
-the connection is read-only, DuckDB file access outside the data folder is turned
-off, and a timer stops queries that run too long.
+Every user query goes through :mod:`peakwhale_helm.sql_guard` first. On top of that:
+
+* DuckDB's own parser checks that the final SQL is exactly one SELECT statement
+* DuckDB and SQLite files are opened read-only, PostgreSQL is attached read-only
+* DuckDB can read only the data files themselves (and a private, empty temp folder)
+* settings are locked, and a timer stops queries that run too long
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ import contextlib
 import logging
 import re
 import sqlite3
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +78,10 @@ def quote_ident(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
+def _sql_text(value: str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def _sqlite_authorizer(action: int, arg1: Any, arg2: Any, db_name: Any, source: Any) -> int:
     """SQLite engine-level guard for user queries: allow reads only."""
     allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, getattr(sqlite3, "SQLITE_RECURSIVE", 33)}
@@ -98,6 +106,14 @@ class Database:
         self._lock = threading.RLock()
         self._shared: Any = None  # cached in-memory DuckDB for files / postgres
         self._shared_signature: Any = None
+        self._tmp: tempfile.TemporaryDirectory | None = None
+
+    def _temp_directory(self) -> str:
+        # DuckDB may read and write its temp folder. Use a private, empty one, so that
+        # folder cannot be used to read other files (the default is ./.tmp or <db>.tmp).
+        if self._tmp is None:
+            self._tmp = tempfile.TemporaryDirectory(prefix="helm-duckdb-", ignore_cleanup_errors=True)
+        return self._tmp.name
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "Database":
@@ -126,7 +142,11 @@ class Database:
                 con = duckdb.connect(
                     self.target,
                     read_only=True,
-                    config={"enable_external_access": False, "lock_configuration": True},
+                    config={
+                        "enable_external_access": False,
+                        "lock_configuration": True,
+                        "temp_directory": self._temp_directory(),
+                    },
                 )
             except duckdb.Error as exc:
                 raise DatabaseError(f"Could not open DuckDB file {self.target}: {exc}") from None
@@ -190,6 +210,7 @@ class Database:
                 self._create_file_views(con, files)
             else:
                 self._attach_postgres(con)
+            con.execute(f"SET temp_directory = {_sql_text(self._temp_directory())}")
             con.execute("SET enable_external_access = false")
             con.execute("SET lock_configuration = true")
         except duckdb.Error as exc:
@@ -211,7 +232,7 @@ class Database:
             while unique in used:
                 unique, n = f"{name}_{n}", n + 1
             used.add(unique)
-            literal = "'" + str(path.resolve()).replace("'", "''") + "'"
+            literal = _sql_text(path.resolve())
             suffix = path.suffix.lower()
             if suffix == ".parquet":
                 source = f"read_parquet({literal})"
@@ -220,12 +241,10 @@ class Database:
             else:
                 source = f"read_csv_auto({literal})"
             con.execute(f"CREATE VIEW {quote_ident(unique)} AS SELECT * FROM {source}")
-        if root.is_dir():
-            allowed = str(root.resolve()).rstrip("/\\") + "/"
-            con.execute(f"SET allowed_directories = ['{allowed.replace(chr(39), chr(39) * 2)}']")
-        else:
-            allowed = str(root.resolve()).replace("'", "''")
-            con.execute(f"SET allowed_paths = ['{allowed}']")
+        # Only the data files themselves stay readable, not the rest of the folder
+        # (hidden files such as .env, or other files next to the data).
+        allowed = ", ".join(_sql_text(path.resolve()) for path in files)
+        con.execute(f"SET allowed_paths = [{allowed}]")
 
     def _attach_postgres(self, con: Any) -> None:
         # Experimental. Needs the DuckDB postgres extension (downloaded once by INSTALL).
@@ -274,6 +293,26 @@ class Database:
             if guarded and self.kind == "sqlite":
                 con.set_authorizer(None)
 
+    def _check_one_select(self, con: Any, sql: str) -> None:
+        """A second opinion from DuckDB's own parser: the SQL must be one SELECT statement.
+
+        The text guard already checks this. This check does not depend on how the guard
+        reads quotes and comments, so a gap in the guard cannot run a second statement.
+        """
+        import duckdb
+
+        try:
+            statements = con.extract_statements(sql)
+        except duckdb.Error as exc:
+            message = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
+            raise DatabaseError(f"SQL error: {message}") from None
+        # PIVOT without an IN list makes DuckDB add its own CREATE TYPE step, with no text.
+        own = [s for s in statements if s.type != duckdb.StatementType.CREATE or s.query.strip()]
+        if len(own) != 1 or own[0].type != duckdb.StatementType.SELECT:
+            raise DatabaseError(
+                "Blocked: only one read-only SELECT statement is allowed. This tool cannot change data or settings."
+            )
+
     def query(self, sql: str, max_rows: int | None = None) -> QueryResult:
         """Run one read-only SELECT/WITH query with a row limit."""
         limit = max(1, min(int(max_rows or self.max_rows), self.max_rows))
@@ -281,8 +320,11 @@ class Database:
             checked = check_sql(sql)
         except SQLGuardError as exc:
             raise DatabaseError(str(exc)) from None
+        final = limit_rows(checked, limit)
         with self._connect() as con:
-            columns, rows = self._execute(con, limit_rows(checked, limit), fetch=limit + 1, guarded=True)
+            if self.dialect == "duckdb":
+                self._check_one_select(con, final)
+            columns, rows = self._execute(con, final, fetch=limit + 1, guarded=True)
         truncated = len(rows) > limit
         return QueryResult(columns, rows[:limit], truncated, limit)
 
@@ -360,3 +402,6 @@ class Database:
                 with contextlib.suppress(Exception):
                     self._shared.close()
                 self._shared = None
+            if self._tmp is not None:
+                self._tmp.cleanup()
+                self._tmp = None

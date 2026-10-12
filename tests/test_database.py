@@ -1,8 +1,10 @@
 import sqlite3
+from pathlib import Path
 
 import duckdb
 import pytest
 
+import peakwhale_helm.database as database_module
 from peakwhale_helm.database import Database, DatabaseError
 
 
@@ -197,3 +199,68 @@ def test_time_zone_columns_work_and_show_in_utc(tmp_path):
     assert "2025-01-02 03:04:05+00:00" in sample.to_markdown()
     assert "2025-01-02 03:04:05+00:00" in db.query("SELECT * FROM events").to_markdown()
     assert len(db.query("SELECT now() AS t").rows) == 1
+
+
+def test_files_mode_can_read_only_the_data_files(files_db, tmp_path):
+    folder = tmp_path / "exports"
+    (folder / ".env").write_text("OPENAI_API_KEY=sk-secret-123\n")
+    files_db.list_tables()
+    # Skip the guard on purpose: the engine must refuse files that are not tables.
+    with files_db._connect() as con:
+        for name in (".env", ".hidden.csv", "notes.txt"):
+            with pytest.raises(duckdb.Error):
+                con.execute(f"SELECT * FROM read_text('{folder / name}')").fetchall()
+        with pytest.raises(duckdb.Error):
+            con.execute("SET allowed_paths = []")
+
+
+def test_duckdb_temp_folder_is_private(demo_db, files_db):
+    for db in (demo_db, files_db):
+        db.list_tables()
+        with db._connect() as con:
+            folders = con.execute("SELECT current_setting('allowed_directories')").fetchone()[0]
+        assert [f.rstrip("/") for f in folders] == [db._temp_directory()]
+        assert Path(db._temp_directory()).name.startswith("helm-duckdb-")
+    files_db.close()
+    assert files_db._tmp is None
+
+
+def test_duckdb_parser_stops_a_second_statement_the_guard_missed(files_db, tmp_path, monkeypatch):
+    sales = tmp_path / "exports" / "sales.csv"
+    before = sales.read_text()
+    # Pretend the text guard has a gap and lets everything through.
+    monkeypatch.setattr(database_module, "check_sql", lambda sql: sql)
+    attack = (
+        "SELECT 1 AS a) AS x; "
+        f"COPY (SELECT 1 AS id) TO '{sales}' (HEADER, USE_TMP_FILE false); "
+        "SELECT * FROM (SELECT 1 AS b"
+    )
+    with pytest.raises(DatabaseError, match="only one read-only SELECT"):
+        files_db.query(attack)
+    assert sales.read_text() == before
+    assert files_db.query("SELECT COUNT(*) FROM sales").rows == [(3,)]
+
+
+def test_review_attacks_are_blocked_end_to_end(files_db, tmp_path):
+    folder = tmp_path / "exports"
+    (folder / ".env").write_text("OPENAI_API_KEY=sk-secret-123\n")
+    sales = folder / "sales.csv"
+    before = sales.read_text()
+    attacks = [
+        f"SELECT $$'$$ AS a, (SELECT content FROM read_text('{folder / '.env'}')) AS leaked, $$'$$ AS c",
+        f"SELECT $$'$$ AS a) AS x; COPY (SELECT 1 AS id, 0 AS amount) TO '{sales}' (HEADER); "
+        "SELECT * FROM (SELECT $$'$$ AS b",
+        f"SELECT E'\\'' AS a, (SELECT content FROM read_text('{folder / '.env'}')) AS leaked --'",
+        'SELECT * FROM ".tmp/leak.csv"',
+    ]
+    for sql in attacks:
+        with pytest.raises(DatabaseError, match="Blocked"):
+            files_db.query(sql)
+    assert sales.read_text() == before
+
+
+def test_dynamic_pivot_still_works(demo_db):
+    # PIVOT without an IN list makes DuckDB add its own CREATE TYPE step. That is fine.
+    result = demo_db.query("SELECT * FROM (PIVOT (SELECT segment FROM customers) ON segment USING COUNT(*))")
+    assert len(result.rows) == 1 and sum(result.rows[0]) == 100
+
