@@ -42,6 +42,7 @@ data/ledger.duckdb
 data/**/*.duckdb
 data/**/*.db
 data/vault/*.pdf
+data/vault/credit_policy.md
 data/logs/
 
 # Build and dist
