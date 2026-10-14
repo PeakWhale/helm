@@ -157,16 +157,35 @@ CI runs the tests and the fallback evals on Python 3.11 to 3.14 on every push an
 - PostgreSQL support is experimental and not tested.
 - The guard blocks some valid SQL on purpose: a column named `load` must be written as `"load"`.
 
+## What it enables businesses to do
+
+* **Private, local-first data Q&A:** Let analysts and operations teams query internal SQL tables and policy PDFs on their own hardware without sending sensitive records to external cloud APIs.
+* **Auditable answers with source citations:** Every response lists the exact read-only SQL query and row count or document chunk used, so teams can verify numbers before acting.
+* **Drop-in MCP server for AI assistants:** Connect Claude Desktop, Cursor, or internal agent workflows to company data through a read-only SQL guard.
+
+## Connect and customize
+
+Want help adapting **PeakWhale™ Helm** to your own data, workflows, or infrastructure?
+
+* **Book 30 minutes:** [Schedule a working session with Addy](https://adrkv.github.io/meet.html?audience=teams)
+* **Portfolio and whitepapers:** [adrkv.github.io](https://adrkv.github.io)
+* **LinkedIn:** [Addy Kaveti](https://www.linkedin.com/in/adrkv/) · [PeakWhale™](https://www.linkedin.com/company/peakwhale%E2%84%A2/)
+
 ## Part of the PeakWhale™ fleet
 
-* **PeakWhale™ Helm**: research assistant over your own data.
-* **PeakWhale™ Orca**: fraud check for card purchases, with plain-English reasons.
-* **PeakWhale™ Harbor**: turn a spreadsheet into a prediction API.
-* **PeakWhale™ Trident**: fail-safe triage engine, AI plus editable rules; unclear cases go to a person.
-* **PeakWhale™ Berth**: EV fleet charging planner.
+PeakWhale™ is an open-source initiative by [Addy Kaveti](https://adrkv.github.io) making practical AI and machine learning accessible to every team:
 
-## License
-Apache License 2.0 © 2025-2026 Aditya Rao (Addy) Kaveti. See [LICENSE](LICENSE) and [NOTICE](NOTICE). If you share or build on Helm, keep the NOTICE file. PeakWhale™ is Addy's project name; the license does not cover the name or logo.
+* **[PeakWhale™ Helm](https://github.com/PeakWhale/helm)**: local-first research assistant over your own SQL databases and documents, with source citations.
+* **[PeakWhale™ Orca](https://github.com/PeakWhale/orca)**: self-hosted payment fraud check that scores transactions and explains every decision in plain English.
+* **[PeakWhale™ Harbor](https://github.com/PeakWhale/harbor)**: turns any CSV spreadsheet into a prediction web app and JSON API with honest prediction ranges.
+* **[PeakWhale™ Trident](https://github.com/PeakWhale/trident)**: fail-safe triage engine pairing AI with editable YAML rule packs so unclear cases always go to a person.
+* **[PeakWhale™ Berth](https://github.com/PeakWhale/berth)**: EV depot fleet charging planner that schedules every vehicle to leave ready at the lowest power cost.
+* **[PeakWhale™ Pod](https://github.com/PeakWhale/pod)**: domain-agnostic K-means cohort and regional clustering engine with plain-English segment profiles.
+* **[PeakWhale™ Pilot](https://github.com/PeakWhale/pilot)**: outcome forecaster and early-warning engine that flags at-risk records and explains the top drivers.
 
-## Author
-Built by Addy
+## Legal, trademark, and liability notice
+
+* **Open-source license:** Licensed under the **Apache License 2.0** (© 2025-2026 Aditya Rao (Addy) Kaveti). See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). If you distribute, modify, or build on this software, you must retain the [`NOTICE`](NOTICE) file as required by Section 4(d) of the Apache License 2.0.
+* **Trademark reservation:** **PeakWhale™** and the PeakWhale project marks and logos are trademarks of Aditya Rao (Addy) Kaveti. Under Section 6 of the Apache License 2.0, this license grants no permission to use the PeakWhale™ name, marks, or logos to endorse or promote derivative products or services without prior written permission.
+* **No warranty or professional advice:** This software is provided **"AS IS"**, without warranty or liability of any kind (see Sections 7 and 8 of the Apache License 2.0). Output from this tool does not constitute financial, medical, legal, compliance, or safety advice. You are solely responsible for independent validation, security controls, human oversight, and regulatory compliance before using this software in production.
+* **Independent personal project and synthetic data:** Created and maintained by Aditya Rao (Addy) Kaveti in an independent personal capacity. All bundled demo datasets are synthetic or public benchmark examples and contain no proprietary or employer material.
